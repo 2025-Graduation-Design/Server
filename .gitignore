@@ -1,31 +1,18 @@
-# 🛑 환경 변수 파일 (개인정보 유출 방지!)
+# 환경변수 파일 (.env) - 개인 정보 보호 필수!
 .env
-.env.local
-.env.*
 
-# 🛑 Python 가상환경 (venv, virtualenv 등)
+# Python 가상환경 폴더 (venv)
 .venv/
 venv/
-.venv/pyvenv.cfg
 
-# 🛑 PyCharm, VSCode, Jupyter 관련 설정 파일 제외
+# PyCharm, VSCode 관련 설정 파일 제외
 .idea/
 .vscode/
-.ipynb_checkpoints/
 
-# 🛑 __pycache__, DB 파일, 로그 파일 등 제외
+# __pycache__, DB 파일, 로그 파일 제외
 __pycache__/
 *.pyc
 *.pyo
 *.sqlite3
 *.db
 *.log
-
-# 🛑 FastAPI, Flask 등에서 자동 생성되는 파일
-instance/
-config.py
-static/
-
-# 🛑 Git이 자동 생성하는 파일
-.DS_Store
-Thumbs.db
