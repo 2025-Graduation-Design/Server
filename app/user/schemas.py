@@ -19,5 +19,10 @@ class UserResponse(BaseModel):
     nickname: str
     phone: Optional[str] = None
 
-    class Config:
-        orm_mode = True
+class UserLoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+
+# 비밀번호 확인 모델
+class UserPasswordRequest(BaseModel):
+    password: str
