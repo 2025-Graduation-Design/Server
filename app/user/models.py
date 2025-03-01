@@ -13,6 +13,5 @@ class User(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
-    # ✅ 관계 명칭을 `diaries`로 변경
     diaries = relationship("Diary", back_populates="user", cascade="all, delete")
     user_genres = relationship("UserGenre", back_populates="user", cascade="all, delete")

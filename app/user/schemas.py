@@ -1,9 +1,9 @@
 from datetime import datetime
 
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
-from app.genre.schemas import GenreResponse
+from app.genre.schemas import GenreResponse, UserGenreInfoResponse
 
 
 # Request
@@ -32,11 +32,6 @@ class UserLoginResponse(BaseModel):
     access_token: str
     refresh_token: str
 
-class UserResponse(BaseModel):
-    user_id: str
-    nickname: str
-    phone: Optional[str] = None
-
 class UserGenreResponse(BaseModel):
     id: int
     user_id: int
@@ -45,3 +40,13 @@ class UserGenreResponse(BaseModel):
 
     class Config:
         orm_mode = True
+
+class UserResponse(BaseModel):
+    user_id: str
+    nickname: str
+    phone: Optional[str] = None
+    user_genres: List[UserGenreInfoResponse]
+
+    class Config:
+        orm_mode = True
+

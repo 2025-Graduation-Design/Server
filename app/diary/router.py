@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import extract
 from app.database import get_db
 from app.user.auth import get_current_user
 from app.diary.models import Diary
 from app.diary.schemas import DiaryCreateRequest, DiaryUpdateRequest, DiaryResponse
 from app.user.models import User
+from typing import List
 
 router = APIRouter()
 
@@ -84,3 +86,21 @@ def delete_diary(
     db.commit()
 
     return {"message": "일기가 삭제되었습니다!"}
+
+@router.get("/{year}/{month}", response_model=List[DiaryResponse], summary="특정 연도와 월의 일기 조회", description="입력한 연도와 월에 해당하는 모든 일기를 조회합니다.")
+def get_diaries_by_month(
+    year: int,
+    month: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    diaries = db.query(Diary).filter(
+        Diary.user_id == current_user.id,
+        extract("year", Diary.created_at) == year,
+        extract("month", Diary.created_at) == month
+    ).all()
+
+    if not diaries:
+        raise HTTPException(status_code=404, detail="해당 연도와 월에 작성된 일기가 없습니다.")
+
+    return diaries
