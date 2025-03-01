@@ -1,28 +1,47 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 from typing import Optional
 
-# 회원가입 요청 모델
+from app.genre.schemas import GenreResponse
+
+
+# Request
 class UserCreateRequest(BaseModel):
     user_id: str
     password: str
     nickname: str
     phone: Optional[str] = None
 
-# 로그인 요청 모델
 class UserLoginRequest(BaseModel):
     user_id: str
     password: str
 
-# 유저 응답 모델
+class UserPasswordRequest(BaseModel):
+    password: str
+
+class UserUpdateRequest(BaseModel):
+    nickname: Optional[str] = None
+    phone: Optional[str] = None
+
+class UserPasswordUpdateRequest(BaseModel):
+    password: str
+
+# Response
+class UserLoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+
 class UserResponse(BaseModel):
     user_id: str
     nickname: str
     phone: Optional[str] = None
 
-class UserLoginResponse(BaseModel):
-    access_token: str
-    refresh_token: str
+class UserGenreResponse(BaseModel):
+    id: int
+    user_id: int
+    genre: GenreResponse
+    created_at: datetime
 
-# 비밀번호 확인 모델
-class UserPasswordRequest(BaseModel):
-    password: str
+    class Config:
+        orm_mode = True

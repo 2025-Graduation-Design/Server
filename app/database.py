@@ -26,7 +26,6 @@ def get_db():
     finally:
         db.close()
 
-# ✅ Redis 설정
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_DB = int(os.getenv("REDIS_DB", 0))
@@ -41,7 +40,6 @@ redis_client = redis.StrictRedis(
     decode_responses=True  # 문자열 데이터를 반환하도록 설정
 )
 
-# ✅ Redis 의존성 주입
 def get_redis():
     try:
         yield redis_client

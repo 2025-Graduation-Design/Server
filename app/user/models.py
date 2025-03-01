@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, func
+from sqlalchemy.orm import relationship
 from app.database import Base
 
 class User(Base):
@@ -11,3 +12,7 @@ class User(Base):
     phone = Column(String(15), nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # ✅ 관계 명칭을 `diaries`로 변경
+    diaries = relationship("Diary", back_populates="user", cascade="all, delete")
+    user_genres = relationship("UserGenre", back_populates="user", cascade="all, delete")
