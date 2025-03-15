@@ -28,6 +28,11 @@ class UserPasswordUpdateRequest(BaseModel):
     password: str
 
 # Response
+class UserRegisterResponse(BaseModel):
+    user_id: str
+    nickname: str
+    phone: Optional[str]
+
 class UserLoginResponse(BaseModel):
     access_token: str
     refresh_token: str

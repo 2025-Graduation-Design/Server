@@ -10,7 +10,7 @@ from app.user.auth import (
     logout
 )
 from app.user.schemas import UserLoginRequest, UserLoginResponse, UserResponse, UserCreateRequest, UserUpdateRequest, \
-    UserPasswordUpdateRequest, UserGenreResponse
+    UserPasswordUpdateRequest, UserGenreResponse, UserRegisterResponse
 
 router = APIRouter()
 
@@ -28,7 +28,7 @@ router = APIRouter()
     - 비밀번호가 보안 규칙에 맞지 않으면 400 오류 발생(특수문자 허용 :[!@#$%^&*(),.?])
     - ID가 이미 존재하면 409 오류 발생
     """,
-    response_model=UserResponse,
+    response_model=UserRegisterResponse,
     responses={
         201: {"description": "created", "content": {"application/json": {"example": {"user_id": "duehee", "nickname": "듀히", "phone": "010-1234-5678"}}}},
         400: {"description": "Bad Request", "content": {"application/json": {"example": {"detail": "비밀번호는 최소 8자 이상이어야 합니다."}}}},
@@ -54,7 +54,7 @@ def register_user(user_create: UserCreateRequest, db: Session = Depends(get_db))
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    return UserResponse(
+    return UserRegisterResponse(
         user_id=new_user.user_id,
         nickname=new_user.nickname,
         phone=new_user.phone
