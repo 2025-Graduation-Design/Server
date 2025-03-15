@@ -17,16 +17,16 @@ async def add_genres_from_mongodb(mongodb=Depends(get_mongodb), db: Session = De
     MongoDB에서 'genre' 컬럼을 가져와 MySQL의 Genre 테이블에 추가
     (중복 제거 후 추가)
     """
-    mongo_genres = await mongodb["song_meta"].distinct("genre")  # 중복 제거된 장르 리스트 가져오기
-    genre_set = set()  # 중복 제거를 위한 집합
+    mongo_genres = await mongodb["song_meta"].distinct("genre")
+    genre_set = set()
 
     for genre in mongo_genres:
         if genre:
-            split_genres = [g.strip() for g in genre.replace("/", ",").split(",")]
-            genre_set.update(split_genres)  # ✅ 중복 방지
+            split_genres = [g.strip() for g in genre.split(",")]
+            genre_set.update(split_genres)
 
     existing_genres = db.query(Genre.name).all()
-    existing_genres = {g[0] for g in existing_genres}  # 튜플 리스트 → 세트(set) 변환
+    existing_genres = {g[0] for g in existing_genres}
 
     new_genres = [Genre(name=genre) for genre in genre_set if genre not in existing_genres]
 
