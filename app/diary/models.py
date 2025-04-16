@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, Text, Float, DateTime
+from sqlalchemy import Column, Integer, ForeignKey, Text, Float, DateTime, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -18,3 +18,11 @@ class Diary(Base):
     # ✅ 클래스명을 정확히 사용 (User, EmotionType)
     user = relationship("User", back_populates="diaries")
     emotion = relationship(EmotionType, back_populates="diaries")
+
+
+class diaryEmbedding(Base):
+    __tablename__ = "diaryEmbedding"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    diary_id = Column(Integer, nullable=False)
+    embedding = Column(JSON, nullable=False)
