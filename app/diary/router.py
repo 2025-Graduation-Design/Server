@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, text
 from app.database import get_db, get_mongodb, get_redis
+from app.emotion.router import predict_emotion
+from app.statistics.models import EmotionStatistics
 from app.user.auth import get_current_user
-from app.diary.models import Diary, diaryEmbedding
+from app.diary.models import Diary
 from app.diary.schemas import DiaryCreateRequest, DiaryUpdateRequest, DiaryResponse
 from app.user.models import User
 from app.embedding.models import kobert, save_diary_embedding, split_sentences, get_user_preferred_genres, \
@@ -23,7 +25,7 @@ router = APIRouter()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-LYRIC_WINDOW_SIZE = 2  # 가사 비교 단위 (3줄)
+LYRIC_WINDOW_SIZE = 3  # 가사 비교 단위 (3줄)
 MIN_LYRIC_LINES = 5    # 최소 가사 줄 수 필터링
 
 # 📝 일기 작성 API
@@ -148,6 +150,10 @@ async def create_diary_with_music_recommend_top3(
     """MySQL songLyricsEmbedding 테이블 구조에 최적화된 버전 (Top-3 우선순위 큐 적용)"""
 
     with transactional_session(db) as session:
+        emotion_id, probabilities = predict_emotion(diary_request.content)
+        logger.info(f"[감정 분석 결과] 감정 ID: {emotion_id} | 신뢰도: {probabilities[emotion_id - 1]:.4f}")
+        confidence = probabilities[emotion_id]
+
         # 1) 문장 분리 + KoBERT 임베딩
         sentences = [s.strip() for s in split_sentences(diary_request.content) if s.strip()]
         if not sentences:
@@ -255,11 +261,46 @@ async def create_diary_with_music_recommend_top3(
         new_diary = Diary(
             user_id=current_user.id,
             content=diary_request.content,
+            emotiontype_id=emotion_id,
+            confidence=confidence,
             created_at=datetime.utcnow()
         )
         session.add(new_diary)
         session.commit()
         session.refresh(new_diary)
+
+        # 6-1) 감정 통계 업데이트 or 추가
+        existing_stat = session.query(EmotionStatistics).filter(
+            EmotionStatistics.user_id == current_user.id,
+            extract("year", EmotionStatistics.created_at) == new_diary.created_at.year,
+            extract("month", EmotionStatistics.created_at) == new_diary.created_at.month,
+            EmotionStatistics.emotiontype_id == emotion_id
+        ).first()
+
+        if existing_stat:
+            existing_stat.count += 1
+            existing_stat.total_diaries += 1
+        else:
+            new_stat = EmotionStatistics(
+                user_id=current_user.id,
+                year=new_diary.created_at.year,
+                month=new_diary.created_at.month,
+                emotiontype_id=emotion_id,
+                quadrant=None,  # 필요한 경우 감정 ID 기반으로 매핑
+                count=1,
+                total_diaries=1,
+                created_at=new_diary.created_at
+            )
+            session.add(new_stat)
+
+        # 같은 달의 다른 감정도 있을 수 있으므로, 해당 달 전체 일기 수 기준으로 다른 감정의 total_diaries도 업데이트
+        session.query(EmotionStatistics).filter(
+            EmotionStatistics.user_id == current_user.id,
+            extract("year", EmotionStatistics.created_at) == new_diary.created_at.year,
+            extract("month", EmotionStatistics.created_at) == new_diary.created_at.month
+        ).update({
+            EmotionStatistics.total_diaries: EmotionStatistics.total_diaries + 1
+        }, synchronize_session=False)
 
         # 7) DiaryEmbedding 테이블 저장
         session.execute(
@@ -285,6 +326,8 @@ async def create_diary_with_music_recommend_top3(
             "id": new_diary.id,
             "user_id": new_diary.user_id,
             "content": new_diary.content,
+            "emotiontype_id": emotion_id,
+            "confidence": confidence,
             "created_at": new_diary.created_at,
             "updated_at": new_diary.updated_at,
             "recommended_songs": recommended_songs
