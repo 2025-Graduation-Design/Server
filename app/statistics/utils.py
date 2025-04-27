@@ -2,14 +2,14 @@ import random
 from collections import Counter
 
 emotion_group_mapping = {
-    1: "positive_active", 2: "positive_active",
-    3: "positive_calm",   4: "positive_calm",
-    5: "negative_flat",   6: "negative_flat",
-    7: "negative_deep",   8: "negative_deep"
+    1: "신남/기대", 2: "신남/기대",
+    3: "만족/편안",   4: "만족/편안",
+    5: "허무/우울",   6: "허무/우울",
+    7: "슬픔/분노",   8: "슬픔/분노"
 }
 
 emotion_messages = {
-    "positive_active": {
+    "신남/기대": {
         "messages": [
             "이번 달은 정말 활기가 넘쳤어요!",
             "에너지가 뿜뿜한 한 달이었네요.",
@@ -31,7 +31,7 @@ emotion_messages = {
             "지금의 감정을 오래 기억할 수 있도록 일기 한 줄 남겨보세요."
         ]
     },
-    "positive_calm": {
+    "만족/편안": {
         "messages": [
             "잔잔하고 만족스러운 시간이 많았어요.",
             "감정이 안정되고 평온했던 한 달이네요.",
@@ -53,7 +53,7 @@ emotion_messages = {
             "자기 자신을 칭찬해주는 말을 해보는 것도 좋아요."
         ]
     },
-    "negative_flat": {
+    "허무/우울": {
         "messages": [
             "조금 허무하거나 무기력한 시간이 많았던 것 같아요.",
             "감정이 납작하게 가라앉은 느낌이 들었던 한 달이네요.",
@@ -75,7 +75,7 @@ emotion_messages = {
             "사소한 기쁨 하나라도 발견하면 그걸 붙잡아보세요."
         ]
     },
-    "negative_deep": {
+    "슬픔/분노": {
         "messages": [
             "감정의 깊이가 깊었던 한 달이에요.",
             "무언가 마음 속을 뒤흔든 일이 있었을지도 몰라요.",
