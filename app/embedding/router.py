@@ -26,7 +26,7 @@ async def embed_songs(
         if song["song_id"] not in existing_song_ids
     ]
 
-    BATCH_SIZE = 10
+    BATCH_SIZE = 5
     processed_songs = []
 
     for i in range(0, len(unprocessed_songs), BATCH_SIZE):
@@ -51,7 +51,7 @@ async def embed_songs(
                 continue
 
         db.commit()
-        time.sleep(3)  # 한 배치 끝나고 쿨다운
+        time.sleep(5)  # 한 배치 끝나고 쿨다운
 
     return {
         "total_songs": len(songs),

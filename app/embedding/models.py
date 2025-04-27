@@ -5,6 +5,7 @@ import numpy as np
 from kiwipiepy import Kiwi
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from app.emotion.models import tokenizer, model
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from transformers import AutoTokenizer, BertModel
 from sklearn.metrics.pairwise import cosine_similarity
@@ -20,9 +21,14 @@ def split_sentences(text: str):
 
 # KoBERT 임베딩 클래스
 class KoBERTEmbedding:
-    def __init__(self):
+    def __init__(self, fine_tuned_model=None):
         self.tokenizer = AutoTokenizer.from_pretrained("skt/kobert-base-v1")
-        self.model = BertModel.from_pretrained("skt/kobert-base-v1")
+
+        if fine_tuned_model is not None:
+            self.model = fine_tuned_model
+        else:
+            self.model = BertModel.from_pretrained("skt/kobert-base-v1")
+
         self.model.eval()
 
     def get_embedding(self, text: str, decimal_places=4):
@@ -31,20 +37,22 @@ class KoBERTEmbedding:
             return None
 
         inputs = self.tokenizer(
-            text, return_tensors="pt", truncation=True, padding=True, max_length=128
+            text,
+            return_tensors="pt",
+            truncation=True,
+            padding=True,
+            max_length=128
         )
         inputs.pop("token_type_ids", None)
 
         with torch.no_grad():
             outputs = self.model(**inputs)
 
-        embedding = outputs.last_hidden_state.mean(dim=1).flatten().numpy()
+        embedding = outputs.last_hidden_state.mean(dim=1).flatten().cpu().numpy()
         rounded = np.round(embedding, decimal_places).tolist()
         return [round(val, decimal_places) for val in rounded]
 
-
-kobert = KoBERTEmbedding()
-
+kobert = KoBERTEmbedding(fine_tuned_model=model.bert)
 
 # MongoDB에서 가사 데이터 불러오기
 async def load_songs_from_mongodb(mongodb: AsyncIOMotorDatabase):
