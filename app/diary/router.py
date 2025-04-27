@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, text
 from app.database import get_db, get_mongodb, get_redis
+from app.emotion.models import model_index_to_db_emotion_id
 from app.emotion.router import predict_emotion
 from app.statistics.models import EmotionStatistics
 from app.user.auth import get_current_user
@@ -151,8 +152,10 @@ async def create_diary_with_music_recommend_top3(
 
     with transactional_session(db) as session:
         emotion_id, probabilities = predict_emotion(diary_request.content)
-        logger.info(f"[감정 분석 결과] 감정 ID: {emotion_id} | 신뢰도: {probabilities[emotion_id - 1]:.4f}")
+        logger.info(f"[감정 분석 결과] 감정 ID: {emotion_id} | 신뢰도: {probabilities[emotion_id]:.4f}")
         confidence = probabilities[emotion_id]
+
+        emotion_id_db = model_index_to_db_emotion_id[emotion_id]
 
         # 1) 문장 분리 + KoBERT 임베딩
         sentences = [s.strip() for s in split_sentences(diary_request.content) if s.strip()]
@@ -218,7 +221,7 @@ async def create_diary_with_music_recommend_top3(
                         torch.tensor(chunk_avg).unsqueeze(0)
                     ).item()
 
-                    if similarity < 0.75:
+                    if similarity < 0.7:
                         continue
 
                     heapq.heappush(heap, (
@@ -261,7 +264,7 @@ async def create_diary_with_music_recommend_top3(
         new_diary = Diary(
             user_id=current_user.id,
             content=diary_request.content,
-            emotiontype_id=emotion_id,
+            emotiontype_id=emotion_id_db,
             confidence=confidence,
             created_at=datetime.utcnow()
         )
@@ -285,7 +288,7 @@ async def create_diary_with_music_recommend_top3(
                 user_id=current_user.id,
                 year=new_diary.created_at.year,
                 month=new_diary.created_at.month,
-                emotiontype_id=emotion_id,
+                emotiontype_id=emotion_id_db,
                 quadrant=None,  # 필요한 경우 감정 ID 기반으로 매핑
                 count=1,
                 total_diaries=1,
@@ -326,7 +329,7 @@ async def create_diary_with_music_recommend_top3(
             "id": new_diary.id,
             "user_id": new_diary.user_id,
             "content": new_diary.content,
-            "emotiontype_id": emotion_id,
+            "emotiontype_id": emotion_id_db,
             "confidence": confidence,
             "created_at": new_diary.created_at,
             "updated_at": new_diary.updated_at,
