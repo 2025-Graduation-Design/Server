@@ -8,6 +8,10 @@ class SongResponse(BaseModel):
     artist: str
     genre: str
     lyrics: List[str]
+    album_id: str
+    album_name: str
+    album_image: str
+    uri: str
 
     class Config:
         orm_mode = True
