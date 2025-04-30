@@ -37,7 +37,7 @@ class EmotionClassifier(nn.Module):
     def __init__(self, num_classes=8):
         super(EmotionClassifier, self).__init__()
         self.bert = AutoModel.from_pretrained("skt/kobert-base-v1")
-        self.dropout = nn.Dropout(0.2)
+        self.dropout = nn.Dropout(0.1)
         self.classifier = nn.Linear(self.bert.config.hidden_size, num_classes)
 
     def forward(self, input_ids, attention_mask):

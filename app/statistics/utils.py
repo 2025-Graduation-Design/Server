@@ -2,7 +2,7 @@ import random
 from collections import Counter
 
 emotion_group_mapping = {
-    1: "신남/기대", 2: "신남/기대",
+    1: "신남/기대",   2: "신남/기대",
     3: "만족/편안",   4: "만족/편안",
     5: "허무/우울",   6: "허무/우울",
     7: "슬픔/분노",   8: "슬픔/분노"

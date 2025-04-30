@@ -1,6 +1,7 @@
 import json
 import logging
 import torch
+import re
 import numpy as np
 from kiwipiepy import Kiwi
 from sqlalchemy.orm import Session
@@ -13,11 +14,50 @@ from sklearn.metrics.pairwise import cosine_similarity
 kiwi = Kiwi()
 logger = logging.getLogger(__name__)
 
-# 문장 분리기
-def split_sentences(text: str):
-    """Kiwi를 이용한 문장 분리"""
-    return [s.text for s in kiwi.split_into_sents(text)]
+SPECIAL_SPLIT_PATTERNS = [
+    r"(ㅋ+)", r"(ㅎ+)", r"(ㅠ+)", r"(ㅜ+)",
+    r"(\.\.\.+)", r"(ㅡㅡ+)", r"(--+)", r"(;;+)",
+    r"(!+)", r"(\?+)"
+]
 
+def split_sentences(text: str):
+    """Kiwi + 추가 패턴 기반 문장 분리"""
+    if not text.strip():
+        return []
+
+    # 1차: Kiwi 문장 분리
+    sentences = [s.text for s in kiwi.split_into_sents(text)]
+
+    refined_sentences = []
+    for sentence in sentences:
+        refined_sentences.extend(split_by_special_patterns(sentence))
+
+    # 공백 제거 및 빈 문자열 제거
+    final_sentences = [s.strip() for s in refined_sentences if s.strip()]
+    return final_sentences
+
+def split_by_special_patterns(sentence: str):
+    """특정 패턴(ㅋㅋ, ㅠㅠ 등)으로 문장 추가 분리"""
+    if not sentence:
+        return []
+
+    pattern = "|".join(SPECIAL_SPLIT_PATTERNS)
+    split_result = re.split(pattern, sentence)
+
+    result = []
+    buffer = ""
+
+    for part in split_result:
+        if part is None:
+            continue
+        buffer += part
+        if re.fullmatch(pattern, part):
+            result.append(buffer.strip())
+            buffer = ""
+    if buffer:
+        result.append(buffer.strip())
+
+    return result
 
 # KoBERT 임베딩 클래스
 class KoBERTEmbedding:
@@ -117,7 +157,12 @@ async def get_songs_by_genre(mongodb: AsyncIOMotorDatabase, genre_names):
     """MongoDB에서 장르명 기준으로 곡 불러오기"""
     fields = {"id": 1, "lyrics": 1, "song_name": 1, "genre": 1,
               "album_image": 1, "artist_name_basket": 1}
-    songs = await mongodb.song_meta.find({"genre": {"$in": genre_names}}, fields).to_list(length=None)
+    query = {
+        "$or": [
+            {"genre": {"$regex": genre, "$options": "i"}} for genre in genre_names
+        ]
+    }
+    songs = await mongodb.song_meta.find(query, fields).to_list(length=None)
     return songs
 
 

@@ -10,6 +10,7 @@ class Diary(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
     content = Column(Text, nullable=False)
+    best_sentence = Column(Text, nullable=False)
     emotiontype_id = Column(Integer, ForeignKey("emotionType.id", ondelete="SET NULL"), nullable=True)
     confidence = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

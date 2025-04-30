@@ -74,7 +74,7 @@ async def crawl_monthly_genre_songs(
     for song in song_data:
         existing_song = await mongodb["song_meta"].find_one({"id": song["id"]})
         if not existing_song:
-            details = crawler.crawl_song_details(song["id"])
+            details = crawler.crawl_song_details_group(song["id"])
             song.update(details)
             new_songs.append(song)
 
@@ -82,3 +82,27 @@ async def crawl_monthly_genre_songs(
         await mongodb["song_meta"].insert_many(new_songs)
 
     return {"message": f"{len(new_songs)}개 {year_month} 월간 {genre} 장르 곡 저장 완료"}
+
+@router.post("/melon/top100/grouped-lyrics",
+             summary="실시간 TOP100 곡 가사 묶기 크롤링",
+             description="멜론 실시간 인기곡을 크롤링하고, 가사를 2줄 25자 기준으로 묶어서 MongoDB에 저장합니다.")
+async def crawl_melon_grouped_lyrics(
+    mongodb = Depends(get_mongodb),
+    limit: int = 100
+):
+    """멜론 실시간 인기곡을 크롤링하여 가사를 2줄 30자 기준으로 묶어 MongoDB에 저장합니다."""
+    crawler = MelonCrawler()
+    song_data = crawler.crawl_songs_with_details(limit)
+
+    new_songs = []
+    for song in song_data:
+        existing_song = await mongodb["song_meta"].find_one({"id": song["id"]})
+        if not existing_song:
+            details = crawler.crawl_song_details_group(song["id"], base_line=2, min_length=25)
+            song.update(details)
+            new_songs.append(song)
+
+    if new_songs:
+        await mongodb["song_meta"].insert_many(new_songs)
+
+    return {"message": f"{len(new_songs)}개 곡(가사 묶음) 저장 완료"}

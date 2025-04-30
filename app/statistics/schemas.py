@@ -5,7 +5,6 @@ class EmotionStatisticsSchema(BaseModel):
     emotiontype_id: int
     count: int
     quadrant: Optional[int]
-    total_diaries: int
 
     class Config:
         orm_mode = True
