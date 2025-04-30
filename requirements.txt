@@ -48,7 +48,6 @@ kobert-transformers==0.6.0
 kogpt2-transformers==0.4.0
 kollocate==0.0.2
 koparadigm==0.10.0
-kss==6.0.4
 Mako==1.3.9
 markdown-it-py==3.0.0
 MarkupSafe==3.0.2
@@ -88,7 +87,7 @@ python-mecab-ko==1.3.7
 python-mecab-ko-dic==2.1.1.post2
 python-multipart==0.0.20
 pytz==2025.1
-PyYAML==6.0.1
+PyYAML==6.0
 redis==5.2.1
 regex==2024.11.6
 requests==2.32.3
