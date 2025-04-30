@@ -1,4 +1,4 @@
-import redis
+import redis.asyncio as redis
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
@@ -9,7 +9,6 @@ import os
 # 환경 변수 로드
 load_dotenv()
 
-# ✅ MySQL 설정
 user = os.getenv("DB_USER")
 passwd = os.getenv("DB_PASSWD")
 host = os.getenv("DB_HOST")
@@ -31,29 +30,22 @@ def get_db():
     finally:
         db.close()
 
-# ✅ Redis 설정
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_DB = int(os.getenv("REDIS_DB", 0))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 
-# Redis 클라이언트 생성
-redis_client = redis.StrictRedis(
+redis_client = redis.Redis(
     host=REDIS_HOST,
     port=REDIS_PORT,
     db=REDIS_DB,
     password=REDIS_PASSWORD,
-    decode_responses=True  # 문자열 데이터를 반환하도록 설정
+    decode_responses=True  # 문자열 반환
 )
 
-# FastAPI 의존성 주입을 위한 Redis 클라이언트 함수
-def get_redis():
-    try:
-        yield redis_client
-    finally:
-        pass  # Redis는 별도 연결 종료가 필요 없음
+async def get_redis():
+    return redis_client
 
-# ✅ MongoDB 설정
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB_NAME = os.getenv("MONGO_DB", "melog")
 

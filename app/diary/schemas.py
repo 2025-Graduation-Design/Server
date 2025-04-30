@@ -20,4 +20,11 @@ class DiaryResponse(BaseModel):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # pydantic v2용 (orm_mode → from_attributes)
+
+
+class DiaryCountResponse(BaseModel):
+    user_id: int
+    year: int
+    month: int
+    diary_count: int
