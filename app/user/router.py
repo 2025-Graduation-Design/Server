@@ -38,23 +38,27 @@ def register_user(user_create: UserCreateRequest, db: Session = Depends(get_db))
     return UserRegisterResponse(user_id=new_user.user_id, nickname=new_user.nickname, phone=new_user.phone)
 
 
-@router.post("/login", response_model=UserLoginResponse, summary="로그인",
-             description="ID, 비밀번호로 로그인하여 access/refresh 토큰을 발급합니다.")
-def login(user_request: UserLoginRequest, db: Session = Depends(get_db), redis_client=Depends(get_redis)):
+@router.post("/login", response_model=UserLoginResponse)
+async def login(user_request: UserLoginRequest, db: Session = Depends(get_db), redis_client=Depends(get_redis)):
     user = db.query(User).filter(User.user_id == user_request.user_id).first()
     if not user or not verify_password(user_request.password, user.password):
         raise HTTPException(status_code=400, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
 
     access_token = create_access_token({"sub": user.user_id})
     refresh_token = create_refresh_token({"sub": user.user_id})
-    redis_client.setex(f"refresh_token:{user.user_id}", 86400 * 14, refresh_token)
+
+    print(f"[DEBUG] Redis에 저장할 키: refresh_token:{user.user_id}")
+    print(f"[DEBUG] 저장할 refresh_token: {refresh_token}")
+
+    await redis_client.setex(f"refresh_token:{user.user_id}", 86400 * 14, refresh_token)
 
     return {"access_token": access_token, "refresh_token": refresh_token}
 
 
-@router.post("/logout", summary="로그아웃", description="로그인된 사용자의 세션을 종료합니다.")
-def user_logout(current_user: User = Depends(get_current_user), redis_client=Depends(get_redis)):
-    return logout(current_user.user_id, redis_client)
+@router.post("/logout", summary="로그아웃")
+async def user_logout(current_user: User = Depends(get_current_user), redis_client=Depends(get_redis)):
+    await redis_client.delete(f"refresh_token:{current_user.user_id}")
+    return {"message": "로그아웃 성공!"}
 
 
 @router.post("/check-password", summary="비밀번호 확인", description="현재 비밀번호가 맞는지 확인합니다.")
@@ -68,13 +72,13 @@ def check_password(
 
 
 @router.post("/refresh", summary="리프레시 토큰 발급", description="리프레시 토큰을 통해 access_token을 재발급합니다.")
-def refresh_token(refresh_token: str, redis_client=Depends(get_redis), db: Session = Depends(get_db)):
+async def refresh_token(refresh_token: str, redis_client=Depends(get_redis), db: Session = Depends(get_db)):
     payload = decode_access_token(refresh_token)
     if "sub" not in payload:
         raise HTTPException(status_code=401, detail="유효하지 않은 리프레시 토큰입니다.")
 
     user_id = payload["sub"]
-    stored = redis_client.get(f"refresh_token:{user_id}")
+    stored = await redis_client.get(f"refresh_token:{user_id}")
     if not stored or stored != refresh_token:
         raise HTTPException(status_code=401, detail="리프레시 토큰이 만료됨")
 

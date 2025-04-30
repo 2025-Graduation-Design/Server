@@ -150,3 +150,64 @@ class MelonCrawler:
                 continue
 
         return songs
+
+    def crawl_songs_with_grouped_lyrics(self, limit=100, base_line=2, min_length=25):
+        """실시간 차트에서 곡 + (가사 2줄 25자 이상 묶은 것) + 장르 크롤링"""
+        songs = self.crawl_songs(limit)
+        for song in songs:
+            details = self.crawl_song_details_group(song["id"], base_line=base_line, min_length=min_length)
+            song["lyrics"] = details["lyrics"]
+            song["genre"] = details["genre"]
+        return songs
+
+
+    def crawl_song_details_group(self, song_id, base_line=2, min_length=25):
+        """곡 상세 페이지에서 가사 (2줄 25자 이상 묶기), 장르 가져오기"""
+        driver = webdriver.Chrome(service=self.service, options=self.options)
+        try:
+            song_url = f"https://www.melon.com/song/detail.htm?songId={song_id}"
+            driver.get(song_url)
+            time.sleep(2)
+
+            try:
+                more_button = driver.find_elements(By.CSS_SELECTOR, "button.lyricButton")
+                if more_button:
+                    more_button[0].click()
+                    time.sleep(1)
+
+                lyrics_text = driver.find_element(By.CSS_SELECTOR, "div.lyric").text.strip()
+                lyrics_sentences = [line.strip() for line in lyrics_text.split("\n") if line.strip()]
+                grouped_lyrics = self._group_lyrics_by_length(lyrics_sentences, base_line, min_length)
+            except Exception as e:
+                print(f"가사 크롤링 실패: {e}")
+                grouped_lyrics = []
+
+            try:
+                genre = ""
+                dt_elements = driver.find_elements(By.CSS_SELECTOR, "dl.list dt")
+                for i, dt in enumerate(dt_elements):
+                    if dt.text.strip() == "장르":
+                        genre = driver.find_elements(By.CSS_SELECTOR, "dl.list dd")[i].text
+                        break
+            except Exception as e:
+                print(f"장르 크롤링 실패: {e}")
+                genre = ""
+
+            return {"lyrics": grouped_lyrics, "genre": genre}
+        finally:
+            driver.quit()
+
+    def _group_lyrics_by_length(self, lyrics_list, base_line=2, min_length=25):
+        """가사를 base_line개 줄로 묶고, 25자 이상 될 때까지 추가하는 함수"""
+        grouped = []
+        i = 0
+        while i < len(lyrics_list):
+            chunk_lines = lyrics_list[i:i+base_line]
+            chunk_text = " ".join(chunk_lines)
+            j = i + base_line
+            while len(chunk_text.replace("\n", "")) < min_length and j < len(lyrics_list):
+                chunk_text += " " + lyrics_list[j]
+                j += 1
+            grouped.append(chunk_text.strip())
+            i = j
+        return grouped

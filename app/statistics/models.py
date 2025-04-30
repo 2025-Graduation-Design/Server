@@ -12,6 +12,5 @@ class EmotionStatistics(Base):
     quadrant = Column(Integer, nullable=True)
     emotiontype_id = Column(Integer, nullable=False)
     count = Column(Integer, nullable=False)
-    total_diaries = Column(Integer, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

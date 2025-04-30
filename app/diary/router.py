@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import extract, text
+from sqlalchemy import extract, text, func
 from app.database import get_db, get_mongodb, get_redis
+from app.emotion.models import model_index_to_db_emotion_id
 from app.emotion.router import predict_emotion
 from app.statistics.models import EmotionStatistics
 from app.user.auth import get_current_user
 from app.diary.models import Diary
-from app.diary.schemas import DiaryCreateRequest, DiaryUpdateRequest, DiaryResponse
+from app.diary.schemas import DiaryCreateRequest, DiaryUpdateRequest, DiaryResponse, DiaryCountResponse
 from app.user.models import User
 from app.embedding.models import kobert, save_diary_embedding, split_sentences, get_user_preferred_genres, \
     get_songs_by_genre, get_song_embeddings, calculate_similarity
@@ -24,9 +25,6 @@ router = APIRouter()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-LYRIC_WINDOW_SIZE = 3  # 가사 비교 단위 (3줄)
-MIN_LYRIC_LINES = 5    # 최소 가사 줄 수 필터링
 
 # 📝 일기 작성 API
 @router.post("", response_model=DiaryResponse, status_code=201, summary="일기 작성 & 노래 추천",
@@ -136,7 +134,6 @@ async def create_diary(
 
         return response_data
 
-
 @router.post("/main", response_model=DiaryResponse, status_code=201,
              summary="일기 작성 & Top-3 유사 가사 기반 노래 추천",
              description="일기를 작성하면 KoBERT 임베딩 후, 선호 장르 내에서 가사 유사도 기반으로 Top-3 노래를 추천합니다.")
@@ -147,42 +144,74 @@ async def create_diary_with_music_recommend_top3(
     mongodb = Depends(get_mongodb),
     redis = Depends(get_redis)
 ):
-    """MySQL songLyricsEmbedding 테이블 구조에 최적화된 버전 (Top-3 우선순위 큐 적용)"""
-
     with transactional_session(db) as session:
-        emotion_id, probabilities = predict_emotion(diary_request.content)
-        logger.info(f"[감정 분석 결과] 감정 ID: {emotion_id} | 신뢰도: {probabilities[emotion_id - 1]:.4f}")
-        confidence = probabilities[emotion_id]
-
-        # 1) 문장 분리 + KoBERT 임베딩
-        sentences = [s.strip() for s in split_sentences(diary_request.content) if s.strip()]
+        # 1) 문장 분리
+        sentences = split_sentences(diary_request.content)
         if not sentences:
-            raise HTTPException(status_code=400, detail="분석할 문장이 없습니다")
+            raise HTTPException(status_code=400, detail="분석할 문장이 없습니다.")
 
-        embeddings = []
-        for sentence in sentences:
-            try:
-                emb = kobert.get_embedding(sentence)
-                embeddings.append(emb)
-            except Exception as e:
-                logger.error(f"임베딩 생성 실패: {e}")
-        if not embeddings:
-            raise HTTPException(status_code=500, detail="임베딩 생성 실패")
+        sentence_confidences = []
+        emotion_vote_counter = {}
 
-        combined_embedding = np.mean(embeddings, axis=0)
+        logger.info("[문장별 감정 분석 시작]")
+        for idx, sentence in enumerate(sentences):
+            if not sentence.strip():
+                continue
 
-        # 2) 선호 장르 조회
+            logger.info(f"    ▶ 문장 {idx + 1}: {sentence}")
+
+            emotion_id, probabilities = predict_emotion(sentence)
+            confidence = max(probabilities)
+
+            logger.info(f"       ▶ 문장 {idx + 1} 예측 감정 ID: {emotion_id}, 확신도: {confidence:.4f}")
+            sentence_confidences.append((sentence, emotion_id, confidence))
+
+            # Top-3 감정 모두 누적
+            probs_tensor = torch.tensor(probabilities)
+            topk = torch.topk(probs_tensor, k=3)
+
+            for i in range(3):
+                emo_id = topk.indices[i].item()
+                score = topk.values[i].item()
+
+                if score < 0.05:
+                    continue
+
+                if emo_id not in emotion_vote_counter:
+                    emotion_vote_counter[emo_id] = 0.0
+                emotion_vote_counter[emo_id] += score
+
+        # 확신도 총합이 가장 높은 감정 선택
+        emotion_id_full = max(emotion_vote_counter.items(), key=lambda x: x[1])[0]
+        confidence_full = emotion_vote_counter[emotion_id_full]
+        emotion_id_db = model_index_to_db_emotion_id[emotion_id_full]
+
+        # 3) 전체 감정 분석 결과 출력
+        logger.info("[문장별 감정 통계 기반 전체 감정 분석 결과]")
+        for emo_id, score in sorted(emotion_vote_counter.items(), key=lambda x: -x[1]):
+            logger.info(f"    ▶ 감정 ID={emo_id}, 확신도 총합={score:.4f}")
+
+        logger.info(f"    ▶ 최종 전체 감정 ID: {emotion_id_full}, 확신도 총합: {confidence_full:.4f}")
+
+        # 4) 가장 감정이 강한 문장 선택
+        best_sentence, best_emotion_id, best_confidence = max(sentence_confidences, key=lambda x: x[2])
+        logger.info(f"[감정이 가장 강한 문장 선택] {best_sentence} (감정 ID={best_emotion_id}, 확신도={best_confidence:.4f})")
+
+        # 5) best_sentence를 KoBERT 임베딩
+        combined_embedding = kobert.get_embedding(best_sentence)
+
+        # 6) 선호 장르 조회
         genre_names = get_user_preferred_genres(session, current_user.id)
         if not genre_names:
-            raise HTTPException(status_code=400, detail="선호 장르가 설정되지 않았습니다")
+            raise HTTPException(status_code=400, detail="선호 장르가 설정되지 않았습니다.")
 
-        # 3) MongoDB에서 해당 장르 노래 가져오기
+        # 7) MongoDB에서 해당 장르 노래 가져오기
         songs = await get_songs_by_genre(mongodb, genre_names)
         if not songs:
-            raise HTTPException(status_code=404, detail="해당 장르에 노래가 없습니다")
+            raise HTTPException(status_code=404, detail="해당 장르에 노래가 없습니다.")
         logger.info(f"🎼 [가져온 노래 개수] - {len(songs)}")
 
-        # 4) 유사도 계산 및 Top-3 추천곡 선정
+        # 8) 유사도 계산 및 Top-3 추천곡 선정
         heap = []
         counter = 0
         for song in songs:
@@ -207,26 +236,21 @@ async def create_diary_with_music_recommend_top3(
                     continue
 
                 lyrics = song.get("lyrics", [])
-                if len(lyrics) < MIN_LYRIC_LINES or len(lyrics_embedding) < LYRIC_WINDOW_SIZE:
+                if len(lyrics) < 1 or len(lyrics_embedding) != len(lyrics):
                     continue
 
-                for i in range(len(lyrics_embedding) - LYRIC_WINDOW_SIZE + 1):
-                    chunk_avg = np.mean(lyrics_embedding[i:i + LYRIC_WINDOW_SIZE], axis=0)
-
+                for idx, block_emb in enumerate(lyrics_embedding):
                     similarity = F.cosine_similarity(
                         torch.tensor(combined_embedding).unsqueeze(0),
-                        torch.tensor(chunk_avg).unsqueeze(0)
+                        torch.tensor(block_emb).unsqueeze(0)
                     ).item()
-
-                    if similarity < 0.75:
-                        continue
 
                     heapq.heappush(heap, (
                         similarity,
                         counter,
                         {
                             "song_id": song["id"],
-                            "lyric_chunk": lyrics[i:i + LYRIC_WINDOW_SIZE],
+                            "lyric_chunk": [lyrics[idx]],  # 블럭 하나만
                             "similarity": similarity,
                             "metadata": {
                                 "song_name": song.get("song_name"),
@@ -242,9 +266,9 @@ async def create_diary_with_music_recommend_top3(
                 logger.error(f"노래 처리 중 오류: {e}")
                 continue
 
+        # 이후 raw_top, top_3, recommended_songs 생성은 기존 코드 그대로 유지
         raw_top = heapq.nlargest(10, heap, key=lambda x: (x[0], x[1]))
 
-        # 5) Top-3 유사한 노래 선택
         seen_song_ids = set()
         top_3 = []
         for sim, _, match in raw_top:
@@ -255,60 +279,46 @@ async def create_diary_with_music_recommend_top3(
                 break
 
         if not top_3:
-            raise HTTPException(status_code=404, detail="적합한 노래를 찾을 수 없습니다")
+            raise HTTPException(status_code=404, detail="적합한 노래를 찾을 수 없습니다.")
 
-        # 6) 일기 저장
+        # 9) 일기 저장
         new_diary = Diary(
             user_id=current_user.id,
             content=diary_request.content,
-            emotiontype_id=emotion_id,
-            confidence=confidence,
+            emotiontype_id=emotion_id_db,
+            confidence=confidence_full,
+            best_sentence=best_sentence,
             created_at=datetime.utcnow()
         )
         session.add(new_diary)
         session.commit()
         session.refresh(new_diary)
 
-        # 6-1) 감정 통계 업데이트 or 추가
+        save_diary_embedding(session, new_diary.id, combined_embedding)
+
+        # 9-1) 감정 통계 업데이트 또는 추가
         existing_stat = session.query(EmotionStatistics).filter(
             EmotionStatistics.user_id == current_user.id,
-            extract("year", EmotionStatistics.created_at) == new_diary.created_at.year,
-            extract("month", EmotionStatistics.created_at) == new_diary.created_at.month,
-            EmotionStatistics.emotiontype_id == emotion_id
+            EmotionStatistics.year == new_diary.created_at.year,
+            EmotionStatistics.month == new_diary.created_at.month,
+            EmotionStatistics.emotiontype_id == emotion_id_db
         ).first()
 
         if existing_stat:
             existing_stat.count += 1
-            existing_stat.total_diaries += 1
         else:
             new_stat = EmotionStatistics(
                 user_id=current_user.id,
                 year=new_diary.created_at.year,
                 month=new_diary.created_at.month,
-                emotiontype_id=emotion_id,
-                quadrant=None,  # 필요한 경우 감정 ID 기반으로 매핑
+                emotiontype_id=emotion_id_db,
+                quadrant=None,  # quadrant 나중에 추가할거면 매핑
                 count=1,
-                total_diaries=1,
                 created_at=new_diary.created_at
             )
             session.add(new_stat)
 
-        # 같은 달의 다른 감정도 있을 수 있으므로, 해당 달 전체 일기 수 기준으로 다른 감정의 total_diaries도 업데이트
-        session.query(EmotionStatistics).filter(
-            EmotionStatistics.user_id == current_user.id,
-            extract("year", EmotionStatistics.created_at) == new_diary.created_at.year,
-            extract("month", EmotionStatistics.created_at) == new_diary.created_at.month
-        ).update({
-            EmotionStatistics.total_diaries: EmotionStatistics.total_diaries + 1
-        }, synchronize_session=False)
-
-        # 7) DiaryEmbedding 테이블 저장
-        session.execute(
-            text("INSERT INTO diaryEmbedding (diary_id, embedding) VALUES (:diary_id, :embedding)"),
-            {"diary_id": new_diary.id, "embedding": json.dumps(combined_embedding.tolist())}
-        )
-
-        # 8) 응답 구성
+        # 10) 응답 구성
         recommended_songs = [
             {
                 "song_id": match["song_id"],
@@ -326,8 +336,8 @@ async def create_diary_with_music_recommend_top3(
             "id": new_diary.id,
             "user_id": new_diary.user_id,
             "content": new_diary.content,
-            "emotiontype_id": emotion_id,
-            "confidence": confidence,
+            "emotiontype_id": emotion_id_db,
+            "confidence": confidence_full,
             "created_at": new_diary.created_at,
             "updated_at": new_diary.updated_at,
             "recommended_songs": recommended_songs
@@ -335,7 +345,6 @@ async def create_diary_with_music_recommend_top3(
 
         logger.info("추천 결과: %s", json.dumps(response_data, indent=2, ensure_ascii=False, default=str))
         return response_data
-
 
 
 @router.get("/{diary_id}", response_model=DiaryResponse,
@@ -435,3 +444,28 @@ def get_diaries_by_month(
 
     return diaries
 
+
+@router.get("/{year}/{month}/count", response_model=DiaryCountResponse,
+            summary="특정 연/월의 일기 개수 조회",
+            description="입력한 연도와 월에 해당하는 일기 개수를 반환합니다.")
+def get_diary_count_by_month(
+    year: int,
+    month: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="월(month)은 1~12 사이여야 합니다.")
+
+    diary_count = db.query(func.count(Diary.id)).filter(
+        Diary.user_id == current_user.id,
+        extract("year", Diary.created_at) == year,
+        extract("month", Diary.created_at) == month
+    ).scalar()
+
+    return DiaryCountResponse(
+        user_id=current_user.id,
+        year=year,
+        month=month,
+        diary_count=diary_count
+    )

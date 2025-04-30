@@ -9,7 +9,6 @@ import os
 # 환경 변수 로드
 load_dotenv()
 
-# ✅ MySQL 설정
 user = os.getenv("DB_USER")
 passwd = os.getenv("DB_PASSWD")
 host = os.getenv("DB_HOST")
@@ -31,7 +30,6 @@ def get_db():
     finally:
         db.close()
 
-# ✅ Redis 설정
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_DB = int(os.getenv("REDIS_DB", 0))
@@ -48,7 +46,6 @@ redis_client = redis.Redis(
 async def get_redis():
     return redis_client
 
-# ✅ MongoDB 설정
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB_NAME = os.getenv("MONGO_DB", "melog")
 

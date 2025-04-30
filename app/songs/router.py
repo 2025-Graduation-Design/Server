@@ -11,16 +11,30 @@ router = APIRouter()
 @router.get("", response_model=List[SongResponse], summary="노래 조회", description="전체 노래 리스트를 조회합니다.")
 async def get_songs(mongodb: Database = Depends(get_mongodb)):
     songs = await mongodb["song_meta"].find(
-        {}, {"id": 1, "song_name": 1, "artist_name_basket": 1, "genre": 1, "lyrics": 1}
+        {}, {
+            "id": 1,
+            "song_name": 1,
+            "artist_name_basket": 1,
+            "genre": 1,
+            "lyrics": 1,
+            "album_id": 1,
+            "album_name": 1,
+            "album_image": 1,
+            "uri": 1
+        }
     ).to_list(length=100)
 
     return [
         {
             "id": song.get("id"),
             "title": song.get("song_name"),
-            "artist": ", ".join(song.get("artist_name_basket")),
+            "artist": ", ".join(song.get("artist_name_basket", [])),
             "genre": song.get("genre"),
-            "lyrics": song.get("lyrics")
+            "lyrics": song.get("lyrics"),
+            "album_id": song.get("album_id"),
+            "album_name": song.get("album_name"),
+            "album_image": song.get("album_image"),
+            "uri": song.get("uri")
         } for song in songs
     ]
 
@@ -33,15 +47,29 @@ async def get_songs_with_genres(
 ):
     songs = await mongodb["song_meta"].find(
         {"genre": {"$regex": genre, "$options": "i"}},
-        {"id": 1, "song_name": 1, "artist_name_basket": 1, "genre": 1, "lyrics": 1}
+        {
+            "id": 1,
+            "song_name": 1,
+            "artist_name_basket": 1,
+            "genre": 1,
+            "lyrics": 1,
+            "album_id": 1,
+            "album_name": 1,
+            "album_image": 1,
+            "uri": 1
+        }
     ).to_list(length=100)
 
     return [
         {
             "id": song.get("id"),
             "title": song.get("song_name"),
-            "artist": ", ".join(song.get("artist_name_basket")),
+            "artist": ", ".join(song.get("artist_name_basket", [])),
             "genre": song.get("genre"),
-            "lyrics": song.get("lyrics")
+            "lyrics": song.get("lyrics"),
+            "album_id": song.get("album_id"),
+            "album_name": song.get("album_name"),
+            "album_image": song.get("album_image"),
+            "uri": song.get("uri")
         } for song in songs
     ]
