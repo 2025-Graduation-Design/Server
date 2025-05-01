@@ -214,12 +214,19 @@ async def create_diary_with_music_recommend_top3(
         # 8) 유사도 계산 및 Top-3 추천곡 선정
         heap = []
         counter = 0
-        for song in songs:
-            try:
-                song_id = int(song["id"])
-                cache_key = f"lyrics_emb:{song_id}"
-                cached = await redis.get(cache_key)
 
+        # 1) 곡 ID 추출
+        song_id_map = {int(song["id"]): song for song in songs}
+        song_ids = list(song_id_map.keys())
+        cache_keys = [f"lyrics_emb:{song_id}" for song_id in song_ids]
+
+        # 2) Redis 일괄 조회
+        cached_values = await redis.mget(cache_keys)
+
+        # 3) 유사도 계산
+        combined_np = np.array(combined_embedding)  # (768,)
+        for song_id, cached in zip(song_ids, cached_values):
+            try:
                 if cached:
                     lyrics_embedding = np.array(json.loads(cached))
                 else:
@@ -230,27 +237,29 @@ async def create_diary_with_music_recommend_top3(
                     if not result:
                         continue
                     lyrics_embedding = np.array(json.loads(result[0]))
-                    await redis.set(cache_key, json.dumps(lyrics_embedding.tolist()))
+                    await redis.set(f"lyrics_emb:{song_id}", json.dumps(lyrics_embedding.tolist()), ex=60*60*24*30)
 
                 if len(lyrics_embedding.shape) != 2:
                     continue
 
+                song = song_id_map[song_id]
                 lyrics = song.get("lyrics", [])
                 if len(lyrics) < 1 or len(lyrics_embedding) != len(lyrics):
                     continue
 
-                for idx, block_emb in enumerate(lyrics_embedding):
-                    similarity = F.cosine_similarity(
-                        torch.tensor(combined_embedding).unsqueeze(0),
-                        torch.tensor(block_emb).unsqueeze(0)
-                    ).item()
+                # 4) 전체 블럭과 유사도 한 번에 계산
+                dot = np.dot(lyrics_embedding, combined_np)  # (n,)
+                norm_block = np.linalg.norm(lyrics_embedding, axis=1)
+                norm_query = np.linalg.norm(combined_np)
+                similarities = dot / (norm_block * norm_query + 1e-8)
 
+                for idx, similarity in enumerate(similarities):
                     heapq.heappush(heap, (
                         similarity,
                         counter,
                         {
-                            "song_id": song["id"],
-                            "lyric_chunk": [lyrics[idx]],  # 블럭 하나만
+                            "song_id": song_id,
+                            "lyric_chunk": [lyrics[idx]],
                             "similarity": similarity,
                             "metadata": {
                                 "song_name": song.get("song_name"),
