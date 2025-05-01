@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.user.router import router as user_router# 🐾 유저 라우터 임포트
+from app.user.router import router as user_router
 from app.diary.router import router as diary_router
 from app.genre.router import router as genre_router
 from app.crawling.router import router as crawling_router
