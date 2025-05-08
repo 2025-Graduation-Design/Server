@@ -25,7 +25,6 @@ router = APIRouter()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 📝 일기 작성 API
 @router.post("", response_model=DiaryResponse, status_code=201, summary="일기 작성 & 노래 추천",
              description="일기를 작성하면 자동으로 임베딩을 진행하고, 사용자의 선호 장르 내에서 가장 유사한 노래를 추천합니다.")
 async def create_diary(

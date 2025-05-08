@@ -18,8 +18,7 @@ def predict_emotion(text: str):
             attention_mask=inputs["attention_mask"]
         )
 
-        logits = outputs.logits  # ✅ 이 줄이 핵심!
-
+        logits = outputs.logits
         probs = torch.softmax(logits, dim=1)
         pred_index = torch.argmax(probs, dim=1).item()
 

@@ -16,7 +16,6 @@ class Diary(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # ✅ 클래스명을 정확히 사용 (User, EmotionType)
     user = relationship("User", back_populates="diaries")
     emotion = relationship(EmotionType, back_populates="diaries")
     recommended_songs = relationship("RecommendedSong", back_populates="diary", cascade="all, delete-orphan")
