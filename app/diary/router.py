@@ -6,8 +6,8 @@ from app.emotion.models import model_index_to_db_emotion_id
 from app.emotion.router import predict_emotion
 from app.statistics.models import EmotionStatistics
 from app.user.auth import get_current_user
-from app.diary.models import Diary
-from app.diary.schemas import DiaryCreateRequest, DiaryUpdateRequest, DiaryResponse, DiaryCountResponse
+from app.diary.models import Diary, RecommendedSong
+from app.diary.schemas import DiaryCreateRequest, DiaryUpdateRequest, DiaryResponse, DiaryCountResponse, SongResponse
 from app.user.models import User
 from app.embedding.models import kobert, save_diary_embedding, split_sentences, get_user_preferred_genres, \
     get_songs_by_genre, get_song_embeddings, calculate_similarity
@@ -18,7 +18,6 @@ import json
 import torch
 import numpy as np
 import heapq
-import torch.nn.functional as F
 from datetime import datetime
 
 router = APIRouter()
@@ -305,6 +304,32 @@ async def create_diary_with_music_recommend_top3(
 
         save_diary_embedding(session, new_diary.id, combined_embedding)
 
+        recommended_songs = [
+            {
+                "song_id": match["song_id"],
+                "song_name": match["metadata"]["song_name"],
+                "best_lyric": " ".join(match["lyric_chunk"]),
+                "similarity_score": round(float(sim), 4),
+                "album_image": match["metadata"]["album_image"],
+                "artist": match["metadata"]["artist"],
+                "genre": match["metadata"]["genre"]
+            }
+            for sim, match in top_3
+        ]
+
+        for song_data in recommended_songs:
+            new_song = RecommendedSong(
+                diary_id=new_diary.id,
+                song_id=song_data["song_id"],  # MongoDB ID 문자열 변환
+                song_name=song_data["song_name"],
+                artist=song_data["artist"],
+                genre=song_data["genre"],
+                album_image=song_data["album_image"],
+                best_lyric=song_data["best_lyric"],
+                similarity_score=song_data["similarity_score"]
+            )
+            session.add(new_song)
+
         # 9-1) 감정 통계 업데이트 또는 추가
         existing_stat = session.query(EmotionStatistics).filter(
             EmotionStatistics.user_id == current_user.id,
@@ -327,20 +352,9 @@ async def create_diary_with_music_recommend_top3(
             )
             session.add(new_stat)
 
-        # 10) 응답 구성
-        recommended_songs = [
-            {
-                "song_id": match["song_id"],
-                "song_name": match["metadata"]["song_name"],
-                "best_lyric": " ".join(match["lyric_chunk"]),
-                "similarity_score": round(float(sim), 4),
-                "album_image": match["metadata"]["album_image"],
-                "artist": match["metadata"]["artist"],
-                "genre": match["metadata"]["genre"]
-            }
-            for sim, match in top_3
-        ]
+        session.commit()
 
+        # 10) 응답 구성
         response_data = {
             "id": new_diary.id,
             "user_id": new_diary.user_id,
@@ -349,7 +363,9 @@ async def create_diary_with_music_recommend_top3(
             "confidence": confidence_full,
             "created_at": new_diary.created_at,
             "updated_at": new_diary.updated_at,
-            "recommended_songs": recommended_songs
+            "recommended_songs": recommended_songs,
+            "top_emotions": [{"emotion_id": emo_id, "score": round(score, 4)}
+                            for emo_id, score in sorted(emotion_vote_counter.items(), key=lambda x: -x[1])[:3]]
         }
 
         logger.info("추천 결과: %s", json.dumps(response_data, indent=2, ensure_ascii=False, default=str))
@@ -373,6 +389,33 @@ def get_diary(
         raise HTTPException(status_code=404, detail="일기를 찾을 수 없습니다.")
 
     return diary
+
+@router.get("/{diary_id}/recommended-songs", response_model=list[SongResponse],
+            summary="추천 노래 조회",
+            description="특정 일기에 대한 추천 노래 리스트를 조회합니다.")
+def get_recommended_songs_by_diary(
+    diary_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. 해당 일기가 유저의 것인지 검증
+    diary = db.query(Diary).filter(
+        Diary.id == diary_id,
+        Diary.user_id == current_user.id
+    ).first()
+
+    if not diary:
+        raise HTTPException(status_code=404, detail="일기를 찾을 수 없습니다.")
+
+    # 2. 추천곡 조회
+    songs = db.query(RecommendedSong).filter(
+        RecommendedSong.diary_id == diary_id
+    ).order_by(RecommendedSong.similarity_score.desc()).all()
+
+    if not songs:
+        raise HTTPException(status_code=404, detail="추천된 노래가 없습니다.")
+
+    return songs
 
 @router.get("", response_model=List[DiaryResponse],
             summary="내 일기 목록 조회",

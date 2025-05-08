@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, Text, Float, DateTime, JSON
+from sqlalchemy import Column, Integer, ForeignKey, Text, Float, DateTime, JSON, String
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -19,6 +19,7 @@ class Diary(Base):
     # ✅ 클래스명을 정확히 사용 (User, EmotionType)
     user = relationship("User", back_populates="diaries")
     emotion = relationship(EmotionType, back_populates="diaries")
+    recommended_songs = relationship("RecommendedSong", back_populates="diary", cascade="all, delete-orphan")
 
 
 class diaryEmbedding(Base):
@@ -27,3 +28,20 @@ class diaryEmbedding(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     diary_id = Column(Integer, nullable=False)
     embedding = Column(JSON, nullable=False)
+
+
+class RecommendedSong(Base):
+    __tablename__ = "recommendedSongs"
+
+    id = Column(Integer, primary_key=True)
+    diary_id = Column(Integer, ForeignKey('diary.id'), nullable=False)
+    song_id = Column(Integer, nullable=False)
+    song_name = Column(String(256))
+    artist = Column(JSON)
+    genre = Column(String(64))
+    album_image = Column(String(512))
+    best_lyric = Column(Text)
+    similarity_score = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    diary = relationship("Diary", back_populates="recommended_songs")
