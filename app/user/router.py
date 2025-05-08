@@ -38,7 +38,7 @@ def register_user(user_create: UserCreateRequest, db: Session = Depends(get_db))
     return UserRegisterResponse(user_id=new_user.user_id, nickname=new_user.nickname, phone=new_user.phone)
 
 
-@router.post("/login", response_model=UserLoginResponse)
+@router.post("/login", response_model=UserLoginResponse, summary="로그인")
 async def login(user_request: UserLoginRequest, db: Session = Depends(get_db), redis_client=Depends(get_redis)):
     user = db.query(User).filter(User.user_id == user_request.user_id).first()
     if not user or not verify_password(user_request.password, user.password):
