@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
-from fastapi.security import APIKeyHeader
+from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
 from sqlalchemy.orm import Session
 from app.database import get_db, get_redis
@@ -19,7 +19,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60)) 
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 14))  # 2주
 
 # OAuth2 설정
-oauth2_scheme = APIKeyHeader(name="Authorization", auto_error=True)
+oauth2_scheme = HTTPBearer()
 
 # 비밀번호 해싱
 def hash_password(password: str) -> str:
@@ -54,7 +54,7 @@ def decode_access_token(token: str):
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다.")
 
 # 현재 로그인된 사용자 가져오기
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(token: HTTPAuthorizationCredentials = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="인증 정보가 올바르지 않습니다.",
@@ -62,11 +62,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     )
 
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
-    except JWTError:
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
         raise credentials_exception
 
     db_user = db.query(User).filter(User.user_id == user_id).first()
