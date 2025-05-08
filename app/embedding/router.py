@@ -42,8 +42,14 @@ async def embed_songs(
             try:
                 embeddings = [
                     kobert.get_embedding(line)
-                    for line in lyrics if line.strip()
+                    for line in lyrics
+                    if line.strip() and len(line.strip()) >= 15
                 ]
+
+                if not embeddings:
+                    logger.info(f"스킵됨 (song_id={song_id}): 임베딩 가능한 가사가 없음")
+                    continue
+
                 save_song_embedding(db, song_id, embeddings)
                 processed_songs.append({"song_id": song_id, "status": "embedded"})
             except Exception as e:
@@ -51,7 +57,7 @@ async def embed_songs(
                 continue
 
         db.commit()
-        time.sleep(3)  # 한 배치 끝나고 쿨다운
+        time.sleep(2)  # 한 배치 끝나고 쿨다운
 
     return {
         "total_songs": len(songs),

@@ -13,10 +13,6 @@ def get_all_genres(db: Session = Depends(get_db)):
 
 @router.post("/new", summary="장르 추가", description="현재 DB에 있는 음악 장르를 추가합니다.")
 async def add_genres_from_mongodb(mongodb=Depends(get_mongodb), db: Session = Depends(get_db)):
-    """
-    MongoDB에서 'genre' 컬럼을 가져와 MySQL의 Genre 테이블에 추가
-    (중복 제거 후 추가)
-    """
     mongo_genres = await mongodb["song_meta"].distinct("genre")
     genre_set = set()
 

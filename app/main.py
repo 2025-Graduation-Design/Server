@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.user.router import router as user_router
 from app.diary.router import router as diary_router
@@ -18,6 +19,14 @@ app.include_router(song_router, prefix="/songs", tags=["songs"])
 app.include_router(embedding_router, prefix="/embedding", tags=["embedding"])
 app.include_router(statistics_router, prefix="/statistics", tags=["statistics"])
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 도메인 허용 (개발용)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.get("/")
 def read_root():
-    return {"message": "Hello, Melog API!"}
+    return {"message": "멜로그 시작 화면에 뜰 메세지에요~"}

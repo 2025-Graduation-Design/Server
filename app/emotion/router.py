@@ -4,20 +4,21 @@ from app.emotion.models import tokenizer, model
 
 logger = logging.getLogger(__name__)
 
-
 def predict_emotion(text: str):
-    inputs = tokenizer(text, return_tensors='pt', truncation=True, padding=True)
+    inputs = tokenizer(
+        text,
+        return_tensors='pt',
+        truncation=True,
+        padding=True,
+        max_length=256
+    )
     with torch.no_grad():
         outputs = model(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"]
         )
-        # outputs가 Tensor일 경우 그냥 사용
-        if isinstance(outputs, tuple) or isinstance(outputs, list):
-            logits = outputs[0]
-        else:
-            logits = outputs
 
+        logits = outputs.logits
         probs = torch.softmax(logits, dim=1)
         pred_index = torch.argmax(probs, dim=1).item()
 
