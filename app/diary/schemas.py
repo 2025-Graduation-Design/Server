@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Union
+
 
 class EmotionScore(BaseModel):
     emotion_id: int
@@ -40,9 +41,54 @@ class DiaryResponse(BaseModel):
     class Config:
         from_attributes = True  # pydantic v2용 (orm_mode → from_attributes)
 
+class SentenceEmotion(BaseModel):
+    sentence: str
+    predicted_emotion_id: int
+    confidence: float
+    top3: List[Dict[str, Union[int, float]]]
+
+class DiaryPreviewResponse(BaseModel):
+    id: int
+    user_id: int
+    content: str
+    emotiontype_id: Optional[int] = None
+    confidence: Optional[float] = None
+    recommended_songs: list[SongResponse]
+    top_emotions: list[EmotionScore] = None
+    created_at: datetime
+    updated_at: datetime
+    sentence_emotions: List[SentenceEmotion]
+
+    class Config:
+        from_attributes = True  # pydantic v2용 (orm_mode → from_attributes)
+
 
 class DiaryCountResponse(BaseModel):
     user_id: int
     year: int
     month: int
     diary_count: int
+
+class TopEmotion(BaseModel):
+    emotion_id: int
+    score: float
+
+class BestSentence(BaseModel):
+    sentence: str
+    predicted_emotion_id: int
+    confidence: float
+
+class SentenceEmotion(BaseModel):
+    sentence: str
+    predicted_emotion_id: int
+    confidence: float
+    top3: List[TopEmotion]
+
+class EmotionPreviewResponse(BaseModel):
+    content: str
+    emotiontype_id: int
+    confidence: float
+    top_emotions: List[TopEmotion]
+    best_sentence: BestSentence
+    sentence_emotions: List[SentenceEmotion]
+

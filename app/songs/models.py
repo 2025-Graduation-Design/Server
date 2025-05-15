@@ -11,3 +11,4 @@ class Song(BaseModel):
 
     class Config:
         from_attributes = True
+

@@ -20,6 +20,8 @@ SPECIAL_SPLIT_PATTERNS = [
     r"(!+)", r"(\?+)"
 ]
 
+MIN_SENTENCE_LENGTH = 5
+
 def split_sentences(text: str):
     """Kiwi + 추가 패턴 기반 문장 분리"""
     if not text.strip():
@@ -37,27 +39,32 @@ def split_sentences(text: str):
     return final_sentences
 
 def split_by_special_patterns(sentence: str):
-    """특정 패턴(ㅋㅋ, ㅠㅠ 등)으로 문장 추가 분리"""
+    """특정 감정 표현(ㅋㅋ, ㅠㅠ 등) 주변에서 문장 분리를 시도하되, 짧은 파편은 병합"""
     if not sentence:
         return []
 
     pattern = "|".join(SPECIAL_SPLIT_PATTERNS)
-    split_result = re.split(pattern, sentence)
+    split_result = re.split(f"({pattern})", sentence)
 
     result = []
     buffer = ""
 
     for part in split_result:
-        if part is None:
+        if part is None or part.strip() == "":
             continue
+
         buffer += part
+        # 만약 이게 감정 패턴이라면, 앞에 쌓인 걸 하나의 문장으로 처리
         if re.fullmatch(pattern, part):
-            result.append(buffer.strip())
-            buffer = ""
-    if buffer:
+            if len(buffer.strip()) >= MIN_SENTENCE_LENGTH:
+                result.append(buffer.strip())
+                buffer = ""
+    # 마지막 남은 부분 처리
+    if buffer.strip():
         result.append(buffer.strip())
 
-    return result
+    # 최종 공백 제거 + 너무 짧은 단위 필터링
+    return [s for s in result if len(s.strip()) >= MIN_SENTENCE_LENGTH]
 
 # KoBERT 임베딩 클래스
 class KoBERTEmbedding:
