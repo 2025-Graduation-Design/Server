@@ -13,7 +13,7 @@ from app.user.models import User
 from app.embedding.models import kobert, save_diary_embedding, split_sentences, get_user_preferred_genres, \
     get_songs_by_genre, get_song_embeddings, calculate_similarity
 from app.transaction import transactional_session
-from typing import List
+from typing import List, Set
 import logging
 import json
 import torch
@@ -27,9 +27,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def get_recently_recommended_song_ids(session, user_id: int, limit: int = 5) -> List[int]:
+def get_recently_recommended_lyrics(session, user_id: int, limit: int = 20) -> Set[str]:
     """
-    최근 작성한 일기 중에서 추천된 노래 ID 리스트를 반환 (중복 제거)
+    최근 일기에서 추천된 가사 블럭(best_lyric)들을 반환
     """
     subquery = (
         session.query(Diary.id)
@@ -39,15 +39,14 @@ def get_recently_recommended_song_ids(session, user_id: int, limit: int = 5) -> 
         .subquery()
     )
 
-    song_ids = (
-        session.query(RecommendedSong.song_id)
+    lyrics = (
+        session.query(RecommendedSong.best_lyric)
         .filter(RecommendedSong.diary_id.in_(subquery))
         .distinct()
         .all()
     )
 
-    # 결과는 [(song_id1,), (song_id2,), ...] 형태이므로 flatten
-    return [sid[0] for sid in song_ids]
+    return set(lyric[0] for lyric in lyrics)
 
 @router.post("/main", response_model=DiaryResponse, status_code=201,
              summary="일기 작성 & Top-3 유사 가사 기반 노래 추천",
@@ -203,22 +202,25 @@ async def create_diary_with_music_recommend_top3(
         # 이후 raw_top, top_3, recommended_songs 생성은 기존 코드 그대로 유지
         raw_top = heapq.nlargest(10, heap, key=lambda x: (x[0], x[1]))
 
-        recent_song_ids = get_recently_recommended_song_ids(session, user_id=current_user.id, limit=5)
+        recent_lyrics = get_recently_recommended_lyrics(session, user_id=current_user.id)
 
         seen_song_ids = set()
+        seen_lyrics = set()
         top_3 = []
+
         for sim, _, match in raw_top:
             song_id = match["song_id"]
+            lyric_chunk = " ".join(match["lyric_chunk"]).strip()
 
             if song_id in seen_song_ids:
                 continue
-
-            if song_id in recent_song_ids:
-                logger.info(f"최근 추천된 곡 {song_id} 제외")
+            if lyric_chunk in recent_lyrics:
+                logger.info(f"최근 추천된 동일 가사 블럭 제외됨: {lyric_chunk}")
                 continue
 
             top_3.append((sim, match))
             seen_song_ids.add(song_id)
+            seen_lyrics.add(lyric_chunk)
 
             if len(top_3) >= 3:
                 break
@@ -476,6 +478,254 @@ async def preview_diary_with_music_recommend_top3(
         },
         "sentence_emotions": sentence_emotions
     }
+
+@router.post("/emotion-based", response_model=DiaryResponse, status_code=201,
+             summary="일기 작성 & 감정 기반 Top-3 노래 추천",
+             description="일기를 작성하면 KoBERT로 감정을 분석하고, 해당 감정에 맞는 장르에서 가사 유사도를 기준으로 노래를 추천합니다.")
+async def create_diary_with_emotion_based_recommendation(
+    diary_request: DiaryCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    mongodb = Depends(get_mongodb),
+    redis = Depends(get_redis)
+):
+    with transactional_session(db) as session:
+        sentences = split_sentences(diary_request.content)
+        if not sentences:
+            raise HTTPException(status_code=400, detail="분석할 문장이 없습니다.")
+
+        sentence_confidences = []
+        emotion_vote_counter = {}
+
+        logger.info("[문장별 감정 분석 시작]")
+        for idx, sentence in enumerate(sentences):
+            if not sentence.strip():
+                continue
+
+            logger.info(f"    ▶ 문장 {idx + 1}: {sentence}")
+
+            emotion_id, probabilities = predict_emotion(sentence)
+            confidence = max(probabilities)
+
+            logger.info(f"       ▶ 문장 {idx + 1} 예측 감정 ID: {emotion_id}, 확신도: {confidence:.4f}")
+            sentence_confidences.append((sentence, emotion_id, confidence))
+
+            probs_tensor = torch.tensor(probabilities)
+            topk = torch.topk(probs_tensor, k=3)
+
+            for i in range(3):
+                emo_id = topk.indices[i].item()
+                score = topk.values[i].item()
+
+                if score < 0.05:
+                    continue
+
+                if emo_id not in emotion_vote_counter:
+                    emotion_vote_counter[emo_id] = 0.0
+                emotion_vote_counter[emo_id] += score
+
+        emotion_id_full = max(emotion_vote_counter.items(), key=lambda x: x[1])[0]
+        confidence_full = emotion_vote_counter[emotion_id_full]
+        emotion_id_db = model_index_to_db_emotion_id[emotion_id_full]
+
+        logger.info("[문장별 감정 통계 기반 전체 감정 분석 결과]")
+        for emo_id, score in sorted(emotion_vote_counter.items(), key=lambda x: -x[1]):
+            logger.info(f"    ▶ 감정 ID={emo_id}, 확신도 총합={score:.4f}")
+
+        logger.info(f"    ▶ 최종 전체 감정 ID: {emotion_id_full}, 확신도 총합: {confidence_full:.4f}")
+
+        top1_emotion_id = emotion_id_full
+        filtered_sentences = [
+            (sentence, emo_id, conf)
+            for sentence, emo_id, conf in sentence_confidences
+            if emo_id == top1_emotion_id
+        ]
+
+        if not filtered_sentences:
+            raise HTTPException(status_code=500, detail="Top 감정에 해당하는 문장이 없습니다.")
+
+        best_sentence, best_emotion_id, best_confidence = max(filtered_sentences, key=lambda x: x[2])
+        logger.info(f"[Top 감정에서 가장 강한 문장 선택] {best_sentence} (감정 ID={best_emotion_id}, 확신도={best_confidence:.4f})")
+
+        combined_embedding = kobert.get_embedding(best_sentence)
+
+        emotion_to_genres = {
+            0: ["댄스", "랩/힙합"],
+            1: ["R&B/Soul", "댄스"],
+            2: ["인디음악", "R&B/Soul"],
+            3: ["R&B/Soul", "인디음악"],
+            4: ["록/메탈", "인디음악"],
+            5: ["발라드", "록/메탈"],
+            6: ["발라드", "R&B/Soul"],
+            7: ["랩/힙합", "록/메탈"]
+        }
+
+        genre_names = emotion_to_genres.get(emotion_id_full)
+        if not genre_names:
+            raise HTTPException(status_code=400, detail="감정에 대응되는 장르가 없습니다.")
+
+        songs = await get_songs_by_genre(mongodb, genre_names)
+        if not songs:
+            raise HTTPException(status_code=404, detail="해당 감정의 장르에 노래가 없습니다.")
+
+        song_id_map = {int(song["id"]): song for song in songs}
+        song_ids = list(song_id_map.keys())
+        cache_keys = [f"lyrics_emb:{song_id}" for song_id in song_ids]
+        cached_values = await redis.mget(cache_keys)
+
+        combined_np = np.array(combined_embedding)
+        combined_np = combined_np / (np.linalg.norm(combined_np) + 1e-8)
+
+        all_embeddings = []
+        meta_infos = []
+
+        for song_id, cached in zip(song_ids, cached_values):
+            try:
+                if cached:
+                    lyrics_embedding = np.array(json.loads(cached))
+                else:
+                    result = session.execute(
+                        text("SELECT embedding FROM songLyricsEmbedding WHERE song_id = :song_id"),
+                        {"song_id": song_id}
+                    ).fetchone()
+                    if not result:
+                        continue
+                    lyrics_embedding = np.array(json.loads(result[0]))
+                    await redis.set(f"lyrics_emb:{song_id}", json.dumps(lyrics_embedding.tolist()), ex=60*60*24*30)
+
+                if len(lyrics_embedding.shape) != 2:
+                    continue
+
+                song = song_id_map[song_id]
+                lyrics = song.get("lyrics", [])
+                if len(lyrics) < 1 or len(lyrics_embedding) != len(lyrics):
+                    continue
+
+                normed = lyrics_embedding / (np.linalg.norm(lyrics_embedding, axis=1, keepdims=True) + 1e-8)
+                all_embeddings.append(normed)
+
+                for idx in range(len(normed)):
+                    meta_infos.append({
+                        "song_id": song_id,
+                        "lyric": lyrics[idx],
+                        "metadata": {
+                            "song_name": song.get("song_name"),
+                            "album_image": song.get("album_image"),
+                            "artist": song.get("artist_name_basket", []),
+                            "genre": song.get("genre")
+                        }
+                    })
+            except Exception as e:
+                logger.error(f"노래 처리 중 오류: {e}")
+                continue
+
+        if not all_embeddings:
+            raise HTTPException(status_code=500, detail="유사도 계산을 위한 데이터가 부족합니다.")
+
+        E = np.vstack(all_embeddings)
+        sims = np.dot(E, combined_np)
+
+        heap = []
+        for i, similarity in enumerate(sims):
+            heapq.heappush(heap, (
+                similarity,
+                i,
+                {
+                    "song_id": meta_infos[i]["song_id"],
+                    "lyric_chunk": [meta_infos[i]["lyric"]],
+                    "similarity": float(similarity),
+                    "metadata": meta_infos[i]["metadata"]
+                }
+            ))
+
+        top_3_raw = heapq.nlargest(10, heap, key=lambda x: (x[0], x[1]))
+
+        recent_lyrics = get_recently_recommended_lyrics(session, user_id=current_user.id)
+
+        seen_song_ids = set()
+        seen_lyrics = set()
+        top_3 = []
+
+        for sim, _, match in top_3_raw:
+            song_id = match["song_id"]
+            lyric_chunk = " ".join(match["lyric_chunk"]).strip()
+
+            if song_id in seen_song_ids:
+                continue
+            if lyric_chunk in recent_lyrics:
+                logger.info(f"최근 추천된 동일 가사 블럭 제외됨: {lyric_chunk}")
+                continue
+
+            top_3.append((sim, match))
+            seen_song_ids.add(song_id)
+            seen_lyrics.add(lyric_chunk)
+
+            if len(top_3) >= 3:
+                break
+
+        if not top_3:
+            raise HTTPException(status_code=404, detail="적합한 노래를 찾을 수 없습니다.")
+
+        new_diary = Diary(
+            user_id=current_user.id,
+            content=diary_request.content,
+            emotiontype_id=emotion_id_db,
+            confidence=confidence_full,
+            best_sentence=best_sentence,
+            created_at=datetime.utcnow()
+        )
+        session.add(new_diary)
+        session.commit()
+        session.refresh(new_diary)
+
+        save_diary_embedding(session, new_diary.id, combined_embedding)
+
+        recommended_songs = [
+            {
+                "song_id": match["song_id"],
+                "song_name": match["metadata"]["song_name"],
+                "best_lyric": " ".join(match["lyric_chunk"]),
+                "similarity_score": round(float(sim), 4),
+                "album_image": match["metadata"]["album_image"],
+                "artist": match["metadata"]["artist"],
+                "genre": match["metadata"]["genre"]
+            }
+            for sim, match in top_3
+        ]
+
+        for song_data in recommended_songs:
+            new_song = RecommendedSong(
+                diary_id=new_diary.id,
+                song_id=song_data["song_id"],
+                song_name=song_data["song_name"],
+                artist=song_data["artist"],
+                genre=song_data["genre"],
+                album_image=song_data["album_image"],
+                best_lyric=song_data["best_lyric"],
+                similarity_score=song_data["similarity_score"]
+            )
+            session.add(new_song)
+
+        session.commit()
+
+        response_data = {
+            "id": new_diary.id,
+            "user_id": new_diary.user_id,
+            "content": new_diary.content,
+            "emotiontype_id": emotion_id_db,
+            "confidence": confidence_full,
+            "created_at": new_diary.created_at,
+            "updated_at": new_diary.updated_at,
+            "recommended_songs": recommended_songs,
+            "top_emotions": [
+                {"emotion_id": eid, "score": round(score, 4)}
+                for eid, score in sorted(emotion_vote_counter.items(), key=lambda x: -x[1])[:3]
+            ]
+        }
+
+        logger.info("추천 결과: %s", json.dumps(response_data, indent=2, ensure_ascii=False, default=str))
+        return response_data
+
 
 @router.get("/{diary_id}", response_model=DiaryResponse,
             summary="일기 조회",
