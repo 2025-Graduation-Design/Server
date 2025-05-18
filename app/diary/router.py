@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def get_recently_recommended_song_ids(session: Session, user_id: int, limit: int = 5) -> List[int]:
+def get_recently_recommended_song_ids(session, user_id: int, limit: int = 5) -> List[int]:
     """
     최근 작성한 일기 중에서 추천된 노래 ID 리스트를 반환 (중복 제거)
     """
@@ -203,7 +203,7 @@ async def create_diary_with_music_recommend_top3(
         # 이후 raw_top, top_3, recommended_songs 생성은 기존 코드 그대로 유지
         raw_top = heapq.nlargest(10, heap, key=lambda x: (x[0], x[1]))
 
-        recent_song_ids = get_recently_recommended_song_ids(user_id=current_user.id, limit=5)
+        recent_song_ids = get_recently_recommended_song_ids(session, user_id=current_user.id, limit=5)
 
         seen_song_ids = set()
         top_3 = []
