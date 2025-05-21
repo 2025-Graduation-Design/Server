@@ -14,7 +14,7 @@ load_dotenv()
 # 환경 변수 설정
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))  # 1시간
+ACCESS_TOKEN_EXPIRE_DAYS = int(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS", 14))  # 1시간
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 14))  # 2주
 
 # OAuth2 설정
@@ -31,15 +31,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 # 액세스 토큰 생성
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire,
+                      "sub": data.get("sub")})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 # 리프레시 토큰 생성
 def create_refresh_token(data: dict):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire,
+                      "sub": data.get("sub")})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 # JWT 토큰 검증 & 예외 처리 개선
