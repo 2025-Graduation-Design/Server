@@ -8,6 +8,7 @@ from app.crawling.router import router as crawling_router
 from app.songs.router import router as song_router
 from app.embedding.router import router as embedding_router
 from app.statistics.router import router as statistics_router
+from app.emotion.router import router as emotion_router
 
 app = FastAPI()
 
@@ -18,6 +19,7 @@ app.include_router(crawling_router, prefix="/crawl", tags=["crawl"])
 app.include_router(song_router, prefix="/songs", tags=["songs"])
 app.include_router(embedding_router, prefix="/embedding", tags=["embedding"])
 app.include_router(statistics_router, prefix="/statistics", tags=["statistics"])
+app.include_router(emotion_router, prefix="/emotion", tags=["emotion"])
 
 app.add_middleware(
     CORSMiddleware,

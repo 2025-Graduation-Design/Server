@@ -1,7 +1,12 @@
 import logging
 import torch
 from app.emotion.models import tokenizer, model
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.emotion.models import EmotionType
 
+router = APIRouter()
 logger = logging.getLogger(__name__)
 
 def predict_emotion(text: str):
@@ -29,3 +34,8 @@ def predict_emotion(text: str):
             logger.info(f"[감정 분석 Top-{i + 1}] ID: {idx}, 확신도: {score:.4f}")
 
     return pred_index, probs.squeeze().tolist()
+
+@router.get("/emotions", response_model=list[dict])
+def get_emotions(db: Session = Depends(get_db)):
+    emotions = db.query(EmotionType).all()
+    return [{"id": e.id, "name": e.name} for e in emotions]

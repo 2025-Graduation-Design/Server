@@ -550,7 +550,7 @@ async def create_diary_with_emotion_based_recommendation(
         combined_embedding = kobert.get_embedding(best_sentence)
 
         emotion_to_genres = {
-            0: ["댄스", "랩/힙합"],
+            0: ["댄스", "록/메탈"],
             1: ["R&B/Soul", "댄스"],
             2: ["인디음악", "R&B/Soul"],
             3: ["R&B/Soul", "인디음악"],
