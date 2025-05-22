@@ -4,6 +4,7 @@ from datetime import datetime
 from app.database import Base
 from app.emotion.models import EmotionType
 
+
 class Diary(Base):
     __tablename__ = "diary"
 
@@ -16,9 +17,17 @@ class Diary(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    main_recommended_song_id = Column(Integer, ForeignKey("recommendedSongs.id"), nullable=True)
+
     user = relationship("User", back_populates="diaries")
     emotion = relationship(EmotionType, back_populates="diaries")
-    recommended_songs = relationship("RecommendedSong", back_populates="diary", cascade="all, delete-orphan")
+
+    recommended_songs = relationship(
+        "RecommendedSong",
+        back_populates="diary",
+        cascade="all, delete-orphan",
+        foreign_keys="[RecommendedSong.diary_id]"
+    )
 
 
 class diaryEmbedding(Base):
@@ -43,4 +52,9 @@ class RecommendedSong(Base):
     similarity_score = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    diary = relationship("Diary", back_populates="recommended_songs")
+    # ✅ 어떤 FK를 기준으로 연결할지 명시
+    diary = relationship(
+        "Diary",
+        back_populates="recommended_songs",
+        foreign_keys=[diary_id]
+    )

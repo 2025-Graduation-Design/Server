@@ -8,7 +8,7 @@ from app.statistics.models import EmotionStatistics
 from app.user.auth import get_current_user
 from app.diary.models import Diary, RecommendedSong
 from app.diary.schemas import DiaryCreateRequest, DiaryUpdateRequest, DiaryResponse, DiaryCountResponse, SongResponse, \
-    DiaryPreviewResponse
+    DiaryPreviewResponse, RecommendSongResponse
 from app.user.models import User
 from app.embedding.models import kobert, save_diary_embedding, split_sentences, get_user_preferred_genres, \
     get_songs_by_genre, get_song_embeddings, calculate_similarity
@@ -745,15 +745,14 @@ def get_diary(
 
     return diary
 
-@router.get("/{diary_id}/recommended-songs", response_model=list[SongResponse],
+@router.get("/diary/{diary_id}/recommended-songs", response_model=List[RecommendSongResponse],
             summary="추천 노래 조회",
             description="특정 일기에 대한 추천 노래 리스트를 조회합니다.")
 def get_recommended_songs_by_diary(
     diary_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # 1. 해당 일기가 유저의 것인지 검증
     diary = db.query(Diary).filter(
         Diary.id == diary_id,
         Diary.user_id == current_user.id
@@ -762,7 +761,6 @@ def get_recommended_songs_by_diary(
     if not diary:
         raise HTTPException(status_code=404, detail="일기를 찾을 수 없습니다.")
 
-    # 2. 추천곡 조회
     songs = db.query(RecommendedSong).filter(
         RecommendedSong.diary_id == diary_id
     ).order_by(RecommendedSong.similarity_score.desc()).all()
@@ -876,3 +874,25 @@ def get_diary_count_by_month(
         month=month,
         diary_count=diary_count
     )
+
+@router.put("/{diary_id}/set-main-song", status_code=200)
+async def set_main_song(
+    diary_id: int,
+    recommended_song_id: int,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    diary = db.query(Diary).filter(Diary.id == diary_id, Diary.user_id == current_user.id).first()
+    if not diary:
+        raise HTTPException(status_code=404, detail="일기를 찾을 수 없습니다.")
+
+    song = db.query(RecommendedSong).filter(
+        RecommendedSong.id == recommended_song_id,
+        RecommendedSong.diary_id == diary.id
+    ).first()
+    if not song:
+        raise HTTPException(status_code=400, detail="추천곡이 일기와 일치하지 않습니다.")
+
+    diary.main_recommended_song_id = song.id
+    db.commit()
+    return {"message": "대표 음악이 설정되었습니다."}

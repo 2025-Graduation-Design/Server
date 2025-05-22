@@ -41,6 +41,19 @@ class DiaryResponse(BaseModel):
     class Config:
         from_attributes = True  # pydantic v2용 (orm_mode → from_attributes)
 
+class RecommendSongResponse(BaseModel):
+    id: int
+    song_id: int
+    song_name: str
+    artist: List[str]
+    genre: str
+    album_image: str
+    best_lyric: str
+    similarity_score: float
+
+    class Config:
+        orm_mode = True
+
 class SentenceEmotion(BaseModel):
     sentence: str
     predicted_emotion_id: int
