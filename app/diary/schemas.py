@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, List, Dict, Union
 
@@ -27,20 +27,6 @@ class SongResponse(BaseModel):
     class Config:
         allow_population_by_field_name = True
 
-class DiaryResponse(BaseModel):
-    id: int
-    user_id: int
-    content: str
-    emotiontype_id: Optional[int] = None
-    confidence: Optional[float] = None
-    recommended_songs: list[SongResponse]
-    top_emotions: list[EmotionScore] = None
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True  # pydantic v2용 (orm_mode → from_attributes)
-
 class RecommendSongResponse(BaseModel):
     id: int
     song_id: int
@@ -52,7 +38,22 @@ class RecommendSongResponse(BaseModel):
     similarity_score: float
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+class DiaryResponse(BaseModel):
+    id: int
+    user_id: int
+    content: str
+    emotiontype_id: Optional[int] = None
+    confidence: Optional[float] = None
+    recommended_songs: List[RecommendSongResponse]
+    main_recommend_song: Optional[RecommendSongResponse] = None
+    top_emotions: list[EmotionScore] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True  # pydantic v2용 (orm_mode → from_attributes)
 
 class SentenceEmotion(BaseModel):
     sentence: str

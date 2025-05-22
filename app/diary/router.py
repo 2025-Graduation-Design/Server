@@ -727,9 +727,7 @@ async def create_diary_with_emotion_based_recommendation(
         return response_data
 
 
-@router.get("/{diary_id}", response_model=DiaryResponse,
-            summary="일기 조회",
-            description="특정 일기의 상세 정보를 조회합니다.")
+@router.get("/{diary_id}", response_model=DiaryResponse)
 def get_diary(
     diary_id: int,
     current_user: User = Depends(get_current_user),
@@ -743,9 +741,26 @@ def get_diary(
     if not diary:
         raise HTTPException(status_code=404, detail="일기를 찾을 수 없습니다.")
 
-    return diary
+    recommended_songs = db.query(RecommendedSong).filter(
+        RecommendedSong.diary_id == diary.id
+    ).order_by(RecommendedSong.similarity_score.desc()).all()
 
-@router.get("/diary/{diary_id}/recommended-songs", response_model=List[RecommendSongResponse],
+    main_song = db.query(RecommendedSong).get(diary.main_recommended_song_id)
+
+    return DiaryResponse(
+        id=diary.id,
+        user_id=diary.user_id,
+        content=diary.content,
+        emotiontype_id=diary.emotiontype_id,
+        confidence=diary.confidence,
+        created_at=diary.created_at,
+        updated_at=diary.updated_at,
+        recommended_songs=recommended_songs,
+        main_recommend_song=main_song,
+        top_emotions=[]
+    )
+
+@router.get("/{diary_id}/recommended-songs", response_model=List[RecommendSongResponse],
             summary="추천 노래 조회",
             description="특정 일기에 대한 추천 노래 리스트를 조회합니다.")
 def get_recommended_songs_by_diary(
@@ -770,9 +785,7 @@ def get_recommended_songs_by_diary(
 
     return songs
 
-@router.get("", response_model=List[DiaryResponse],
-            summary="내 일기 목록 조회",
-            description="로그인한 사용자가 작성한 모든 일기를 조회합니다.")
+@router.get("", response_model=List[DiaryResponse], summary="내 일기 목록 조회", description="로그인한 사용자가 작성한 모든 일기를 조회합니다.")
 def get_all_diaries(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -781,7 +794,28 @@ def get_all_diaries(
         Diary.user_id == current_user.id
     ).all()
 
-    return diaries
+    results = []
+    for diary in diaries:
+        recommended_songs = db.query(RecommendedSong).filter(
+            RecommendedSong.diary_id == diary.id
+        ).order_by(RecommendedSong.similarity_score.desc()).all()
+
+        main_song = db.query(RecommendedSong).get(diary.main_recommended_song_id)
+
+        results.append(DiaryResponse(
+            id=diary.id,
+            user_id=diary.user_id,
+            content=diary.content,
+            emotiontype_id=diary.emotiontype_id,
+            confidence=diary.confidence,
+            created_at=diary.created_at,
+            updated_at=diary.updated_at,
+            recommended_songs=recommended_songs,
+            main_recommend_song=main_song,
+            top_emotions=[]
+        ))
+
+    return results
 
 @router.put("/{diary_id}", response_model=DiaryResponse,
             summary="일기 수정",
