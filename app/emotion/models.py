@@ -2,7 +2,7 @@ import torch
 from transformers import BertForSequenceClassification
 from kobert_tokenizer import KoBERTTokenizer
 
-from sqlalchemy import Column, Integer, ForeignKey, String
+from sqlalchemy import Column, Integer, ForeignKey, String, Float
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -31,6 +31,17 @@ class EmotionType(Base):
     related_emotion_id = Column(Integer, ForeignKey("emotionType.id", ondelete="SET NULL"), nullable=True)
 
     diaries = relationship("Diary", back_populates="emotion")
+
+class DiaryEmotionTag(Base):
+    __tablename__ = "diaryEmotionTags"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    diary_id = Column(Integer, ForeignKey("diary.id", ondelete="CASCADE"), nullable=False)
+    emotiontype_id = Column(Integer, ForeignKey("emotionType.id", ondelete="CASCADE"), nullable=False)
+    score = Column(Float, nullable=False)
+
+    diary = relationship("Diary", back_populates="emotion_tags")
+    emotion = relationship("EmotionType")
 
 tokenizer = KoBERTTokenizer.from_pretrained("skt/kobert-base-v1")
 model = BertForSequenceClassification.from_pretrained("skt/kobert-base-v1", num_labels=8)

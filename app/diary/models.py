@@ -21,14 +21,8 @@ class Diary(Base):
 
     user = relationship("User", back_populates="diaries")
     emotion = relationship(EmotionType, back_populates="diaries")
-
-    recommended_songs = relationship(
-        "RecommendedSong",
-        back_populates="diary",
-        cascade="all, delete-orphan",
-        foreign_keys="[RecommendedSong.diary_id]"
-    )
-
+    recommended_songs = relationship("RecommendedSong", back_populates="diary", cascade="all, delete-orphan", foreign_keys="[RecommendedSong.diary_id]")
+    emotion_tags = relationship("DiaryEmotionTag", back_populates="diary", cascade="all, delete-orphan")
 
 class diaryEmbedding(Base):
     __tablename__ = "diaryEmbedding"
@@ -50,6 +44,7 @@ class RecommendedSong(Base):
     album_image = Column(String(512))
     best_lyric = Column(Text)
     similarity_score = Column(Float)
+    youtube_url = Column(String(512), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # ✅ 어떤 FK를 기준으로 연결할지 명시

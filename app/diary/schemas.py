@@ -33,6 +33,7 @@ class RecommendSongResponse(BaseModel):
     song_name: str
     artist: List[str]
     genre: str
+    youtube_url: Optional[str] = None
     album_image: str
     best_lyric: str
     similarity_score: float
@@ -46,6 +47,7 @@ class DiaryResponse(BaseModel):
     content: str
     emotiontype_id: Optional[int] = None
     confidence: Optional[float] = None
+    best_sentence: Optional[str] = None  # 추가
     recommended_songs: List[RecommendSongResponse]
     main_recommend_song: Optional[RecommendSongResponse] = None
     top_emotions: list[EmotionScore] = None
@@ -53,7 +55,7 @@ class DiaryResponse(BaseModel):
     updated_at: datetime
 
     class Config:
-        from_attributes = True  # pydantic v2용 (orm_mode → from_attributes)
+        from_attributes = True
 
 class SentenceEmotion(BaseModel):
     sentence: str
@@ -106,3 +108,9 @@ class EmotionPreviewResponse(BaseModel):
     best_sentence: BestSentence
     sentence_emotions: List[SentenceEmotion]
 
+class EmotionTag(BaseModel):
+    emotiontype_id: int
+    score: float
+
+    class Config:
+        from_attributes = True

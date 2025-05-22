@@ -1,8 +1,11 @@
+import os
+
+import requests
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, text, func
 from app.database import get_db, get_mongodb, get_redis
-from app.emotion.models import model_index_to_db_emotion_id
+from app.emotion.models import model_index_to_db_emotion_id, DiaryEmotionTag
 from app.emotion.router import predict_emotion
 from app.statistics.models import EmotionStatistics
 from app.user.auth import get_current_user
@@ -11,7 +14,7 @@ from app.diary.schemas import DiaryCreateRequest, DiaryUpdateRequest, DiaryRespo
     DiaryPreviewResponse, RecommendSongResponse
 from app.user.models import User
 from app.embedding.models import kobert, save_diary_embedding, split_sentences, get_user_preferred_genres, \
-    get_songs_by_genre, get_song_embeddings, calculate_similarity
+    get_songs_by_genre
 from app.transaction import transactional_session
 from typing import List, Set
 import logging
@@ -22,6 +25,7 @@ import heapq
 from datetime import datetime
 
 router = APIRouter()
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -554,7 +558,7 @@ async def create_diary_with_emotion_based_recommendation(
             1: ["R&B/Soul", "댄스"],
             2: ["인디음악", "R&B/Soul"],
             3: ["R&B/Soul", "인디음악"],
-            4: ["록/메탈", "인디음악"],
+            4: ["R&B/Soul", "인디음악"],
             5: ["발라드", "록/메탈"],
             6: ["발라드", "R&B/Soul"],
             7: ["랩/힙합", "록/메탈"]
@@ -638,7 +642,7 @@ async def create_diary_with_emotion_based_recommendation(
                 }
             ))
 
-        top_3_raw = heapq.nlargest(10, heap, key=lambda x: (x[0], x[1]))
+        top_3_raw = heapq.nlargest(7, heap, key=lambda x: (x[0], x[1]))
 
         recent_lyrics = get_recently_recommended_lyrics(session, user_id=current_user.id)
 
@@ -678,20 +682,43 @@ async def create_diary_with_emotion_based_recommendation(
         session.commit()
         session.refresh(new_diary)
 
+        for eid, score in sorted(emotion_vote_counter.items(), key=lambda x: -x[1])[:3]:
+            avg_score = score / len(sentences)
+            if avg_score >= 0.15:
+                tag = DiaryEmotionTag(
+                    diary_id=new_diary.id,
+                    emotiontype_id=model_index_to_db_emotion_id[eid],
+                    score=round(avg_score, 4)
+                )
+                session.add(tag)
+
         save_diary_embedding(session, new_diary.id, combined_embedding)
 
-        recommended_songs = [
-            {
-                "song_id": match["song_id"],
-                "song_name": match["metadata"]["song_name"],
-                "best_lyric": " ".join(match["lyric_chunk"]),
-                "similarity_score": round(float(sim), 4),
-                "album_image": match["metadata"]["album_image"],
-                "artist": match["metadata"]["artist"],
-                "genre": match["metadata"]["genre"]
-            }
-            for sim, match in top_3
-        ]
+        recommended_songs = []
+        for sim, match in top_3:
+            song_data = RecommendedSong(
+                diary_id=new_diary.id,
+                song_id=match["song_id"],
+                song_name=match["metadata"]["song_name"],
+                artist=match["metadata"]["artist"],
+                genre=match["metadata"]["genre"],
+                album_image=match["metadata"]["album_image"],
+                best_lyric=" ".join(match["lyric_chunk"]),
+                similarity_score=round(float(sim), 4)
+            )
+            session.add(song_data)
+            session.flush()  # ✅ id 부여를 위해 flush
+
+            recommended_songs.append({
+                "id": song_data.id,  # ✅ 여기에 id 포함
+                "song_id": song_data.song_id,
+                "song_name": song_data.song_name,
+                "artist": song_data.artist,
+                "genre": song_data.genre,
+                "album_image": song_data.album_image,
+                "best_lyric": song_data.best_lyric,
+                "similarity_score": song_data.similarity_score,
+            })
 
         for song_data in recommended_songs:
             new_song = RecommendedSong(
@@ -714,6 +741,7 @@ async def create_diary_with_emotion_based_recommendation(
             "content": new_diary.content,
             "emotiontype_id": emotion_id_db,
             "confidence": confidence_full,
+            "best_sentence": new_diary.best_sentence,
             "created_at": new_diary.created_at,
             "updated_at": new_diary.updated_at,
             "recommended_songs": recommended_songs,
@@ -745,6 +773,8 @@ def get_diary(
         RecommendedSong.diary_id == diary.id
     ).order_by(RecommendedSong.similarity_score.desc()).all()
 
+    emotion_tags = db.query(DiaryEmotionTag).filter(DiaryEmotionTag.diary_id == diary.id).all()
+
     main_song = db.query(RecommendedSong).get(diary.main_recommended_song_id)
 
     return DiaryResponse(
@@ -753,9 +783,11 @@ def get_diary(
         content=diary.content,
         emotiontype_id=diary.emotiontype_id,
         confidence=diary.confidence,
+        best_sentence=diary.best_sentence,
         created_at=diary.created_at,
         updated_at=diary.updated_at,
         recommended_songs=recommended_songs,
+        emotion_tags=emotion_tags,
         main_recommend_song=main_song,
         top_emotions=[]
     )
@@ -808,6 +840,7 @@ def get_all_diaries(
             content=diary.content,
             emotiontype_id=diary.emotiontype_id,
             confidence=diary.confidence,
+            best_sentence=diary.best_sentence,
             created_at=diary.created_at,
             updated_at=diary.updated_at,
             recommended_songs=recommended_songs,
@@ -916,7 +949,11 @@ async def set_main_song(
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    diary = db.query(Diary).filter(Diary.id == diary_id, Diary.user_id == current_user.id).first()
+    diary = db.query(Diary).filter(
+        Diary.id == diary_id,
+        Diary.user_id == current_user.id
+    ).first()
+
     if not diary:
         raise HTTPException(status_code=404, detail="일기를 찾을 수 없습니다.")
 
@@ -924,9 +961,79 @@ async def set_main_song(
         RecommendedSong.id == recommended_song_id,
         RecommendedSong.diary_id == diary.id
     ).first()
+
     if not song:
         raise HTTPException(status_code=400, detail="추천곡이 일기와 일치하지 않습니다.")
 
+    if not song.youtube_url:
+        query = f"{song.song_name} {' '.join(song.artist)}"
+        api_url = "https://www.googleapis.com/youtube/v3/search"
+        params = {
+            "part": "snippet",
+            "q": query,
+            "type": "video",
+            "maxResults": 1,
+            "key": YOUTUBE_API_KEY
+        }
+
+        res = requests.get(api_url, params=params)
+        data = res.json()
+
+        if not data.get("items"):
+            raise HTTPException(status_code=404, detail="YouTube 영상이 없습니다.")
+
+        video_id = data["items"][0]["id"]["videoId"]
+        song.youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # 🎯 대표곡 저장
     diary.main_recommended_song_id = song.id
     db.commit()
-    return {"message": "대표 음악이 설정되었습니다."}
+
+    return {
+        "message": "대표 음악이 설정되었습니다.",
+        "youtube_url": song.youtube_url
+    }
+
+@router.get("/recommended-songs/{recommended_song_id}/youtube-link-direct")
+def get_direct_youtube_link(
+    recommended_song_id: int,
+    db: Session = Depends(get_db)
+):
+    song = db.query(RecommendedSong).filter(RecommendedSong.id == recommended_song_id).first()
+    if not song:
+        raise HTTPException(status_code=404, detail="추천곡을 찾을 수 없습니다.")
+
+    # 이미 저장된 경우 → 캐시된 URL 반환
+    if song.youtube_url:
+        return {
+            "recommended_song_id": song.id,
+            "youtube_url": song.youtube_url
+        }
+
+    # YouTube 검색 API 호출
+    query = f"{song.song_name} {' '.join(song.artist)}"
+    api_url = "https://www.googleapis.com/youtube/v3/search"
+    params = {
+        "part": "snippet",
+        "q": query,
+        "type": "video",
+        "maxResults": 1,
+        "key": YOUTUBE_API_KEY
+    }
+
+    res = requests.get(api_url, params=params)
+    data = res.json()
+
+    if not data.get("items"):
+        raise HTTPException(status_code=404, detail="YouTube 영상이 없습니다.")
+
+    video_id = data["items"][0]["id"]["videoId"]
+    youtube_url = f"https://www.youtube.com/watch?v={video_id}"
+
+    song.youtube_url = youtube_url
+    db.commit()
+
+    return {
+        "recommended_song_id": song.id,
+        "youtube_url": youtube_url
+    }

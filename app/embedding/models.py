@@ -17,26 +17,30 @@ logger = logging.getLogger(__name__)
 SPECIAL_SPLIT_PATTERNS = [
     r"(ㅋ+)", r"(ㅎ+)", r"(ㅠ+)", r"(ㅜ+)",
     r"(\.\.\.+)", r"(ㅡㅡ+)", r"(--+)", r"(;;+)",
-    r"(!+)", r"(\?+)"
+    r"(!+)", r"(\?+)", r"(~+)"
 ]
 
-MIN_SENTENCE_LENGTH = 5
+MIN_SENTENCE_LENGTH = 3
 
 def split_sentences(text: str):
-    """Kiwi + 추가 패턴 기반 문장 분리"""
-    if not text.strip():
-        return []
+    # 1차: kiwi로 문장 단위 분리
+    sentences = [s.text.strip() for s in kiwi.split_into_sents(text)]
 
-    # 1차: Kiwi 문장 분리
-    sentences = [s.text for s in kiwi.split_into_sents(text)]
+    # 너무 짧은 문장은 다음 문장과 병합
+    refined = []
+    buffer = ""
+    for s in sentences:
+        if len(s) < 5:
+            buffer += " " + s
+        else:
+            if buffer:
+                refined.append(buffer.strip())
+                buffer = ""
+            refined.append(s)
+    if buffer:
+        refined.append(buffer.strip())
 
-    refined_sentences = []
-    for sentence in sentences:
-        refined_sentences.extend(split_by_special_patterns(sentence))
-
-    # 공백 제거 및 빈 문자열 제거
-    final_sentences = [s.strip() for s in refined_sentences if s.strip()]
-    return final_sentences
+    return refined
 
 def split_by_special_patterns(sentence: str):
     """특정 감정 표현(ㅋㅋ, ㅠㅠ 등) 주변에서 문장 분리를 시도하되, 짧은 파편은 병합"""
