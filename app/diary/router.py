@@ -755,7 +755,7 @@ async def create_diary_with_emotion_based_recommendation(
         return response_data
 
 
-@router.get("/{diary_id}", response_model=DiaryResponse)
+@router.get("/{diary_id}", response_model=DiaryResponse, summary = "일기 단편 조회")
 def get_diary(
     diary_id: int,
     current_user: User = Depends(get_current_user),
@@ -942,7 +942,7 @@ def get_diary_count_by_month(
         diary_count=diary_count
     )
 
-@router.put("/{diary_id}/set-main-song", status_code=200)
+@router.put("/{diary_id}/set-main-song", status_code=200, summary = "대표 노래 선정")
 async def set_main_song(
     diary_id: int,
     recommended_song_id: int,
@@ -985,7 +985,6 @@ async def set_main_song(
         video_id = data["items"][0]["id"]["videoId"]
         song.youtube_url = f"https://www.youtube.com/watch?v={video_id}"
 
-    # 🎯 대표곡 저장
     diary.main_recommended_song_id = song.id
     db.commit()
 
