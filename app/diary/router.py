@@ -555,7 +555,7 @@ async def create_diary_with_emotion_based_recommendation(
 
         emotion_to_genres = {
             0: ["댄스", "록/메탈"],
-            1: ["R&B/Soul", "댄스"],
+            1: ["인디음악", "댄스"],
             2: ["인디음악", "R&B/Soul"],
             3: ["R&B/Soul", "인디음악"],
             4: ["R&B/Soul", "인디음악"],
@@ -719,20 +719,6 @@ async def create_diary_with_emotion_based_recommendation(
                 "best_lyric": song_data.best_lyric,
                 "similarity_score": song_data.similarity_score,
             })
-
-        for song_data in recommended_songs:
-            new_song = RecommendedSong(
-                diary_id=new_diary.id,
-                song_id=song_data["song_id"],
-                song_name=song_data["song_name"],
-                artist=song_data["artist"],
-                genre=song_data["genre"],
-                album_image=song_data["album_image"],
-                best_lyric=song_data["best_lyric"],
-                similarity_score=song_data["similarity_score"]
-            )
-            session.add(new_song)
-
         session.commit()
 
         response_data = {
