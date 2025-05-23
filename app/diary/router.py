@@ -994,6 +994,8 @@ async def set_main_song(
         "youtube_url": song.youtube_url
     }
 
+"""
+안 씀
 @router.get("/recommended-songs/{recommended_song_id}/youtube-link-direct")
 def get_direct_youtube_link(
     recommended_song_id: int,
@@ -1037,3 +1039,4 @@ def get_direct_youtube_link(
         "recommended_song_id": song.id,
         "youtube_url": youtube_url
     }
+"""
