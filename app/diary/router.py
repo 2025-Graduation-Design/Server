@@ -554,16 +554,15 @@ async def create_diary_with_emotion_based_recommendation(
         combined_embedding = kobert.get_embedding(best_sentence)
 
         emotion_to_genres = {
-            0: ["댄스", "록/메탈"],
-            1: ["인디음악", "댄스"],
-            2: ["인디음악", "R&B/Soul"],
-            3: ["R&B/Soul", "인디음악"],
-            4: ["R&B/Soul", "인디음악"],
-            5: ["발라드", "록/메탈"],
-            6: ["발라드", "R&B/Soul"],
-            7: ["랩/힙합", "록/메탈"]
+            0: ["댄스", "록/메탈"],  # 신남 → 에너지 + 감성 믹스
+            1: ["인디음악", "댄스", "포크/블루스"],  # 기대 → 발랄하거나 설레는 곡
+            2: ["포크/블루스", "인디음악", "R&B/Soul"],  # 편안 → 부드럽고 서정적인 계열
+            3: ["포크/블루스", "인디음악", "R&B/Soul"],  # 만족 → 감정 공감형 감성 음악
+            4: ["포크/블루스", "인디음악", "R&B/Soul"],  # 허무 → 무기력하거나 담담한 정서
+            5: ["발라드", "포크/블루스"],  # 우울 → 조용하거나 격한 감정 침잠
+            6: ["발라드", "R&B/Soul", "포크/블루스"],  # 슬픔 → 애절함 + 회상적 감정
+            7: ["랩/힙합", "록/메탈"]  # 분노 → 파워풀한 표현 위주
         }
-
         genre_names = emotion_to_genres.get(emotion_id_full)
         if not genre_names:
             raise HTTPException(status_code=400, detail="감정에 대응되는 장르가 없습니다.")

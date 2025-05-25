@@ -15,7 +15,8 @@ class MelonCrawler:
         "hiphop": "GN0300",
         "randb": "GN0400",
         "indie": "GN0500",
-        "rock": "GN0600"
+        "rock": "GN0600",
+        "fork": "GN0800"
     }
 
     def __init__(self):
