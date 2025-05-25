@@ -11,7 +11,7 @@ from app.statistics.models import EmotionStatistics
 from app.user.auth import get_current_user
 from app.diary.models import Diary, RecommendedSong
 from app.diary.schemas import DiaryCreateRequest, DiaryUpdateRequest, DiaryResponse, DiaryCountResponse, SongResponse, \
-    DiaryPreviewResponse, RecommendSongResponse
+    DiaryPreviewResponse, RecommendSongResponse, EmotionTag
 from app.user.models import User
 from app.embedding.models import kobert, save_diary_embedding, split_sentences, get_user_preferred_genres, \
     get_songs_by_genre
@@ -30,6 +30,16 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+emotion_to_genres = {
+    0: ["댄스", "록/메탈"],
+    1: ["댄스", "포크/블루스"],
+    2: ["포크/블루스", "R&B/Soul"],
+    3: ["포크/블루스", "인디음악", "R&B/Soul"],
+    4: ["포크/블루스", "인디음악", "R&B/Soul"],
+    5: ["발라드", "포크/블루스"],
+    6: ["발라드", "R&B/Soul", "포크/블루스"],
+    7: ["랩/힙합", "록/메탈"]
+}
 
 def get_recently_recommended_lyrics(session, user_id: int, limit: int = 20) -> Set[str]:
     """
@@ -553,16 +563,6 @@ async def create_diary_with_emotion_based_recommendation(
 
         combined_embedding = kobert.get_embedding(best_sentence)
 
-        emotion_to_genres = {
-            0: ["댄스", "록/메탈"],  # 신남 → 에너지 + 감성 믹스
-            1: ["인디음악", "댄스", "포크/블루스"],  # 기대 → 발랄하거나 설레는 곡
-            2: ["포크/블루스", "인디음악", "R&B/Soul"],  # 편안 → 부드럽고 서정적인 계열
-            3: ["포크/블루스", "인디음악", "R&B/Soul"],  # 만족 → 감정 공감형 감성 음악
-            4: ["포크/블루스", "인디음악", "R&B/Soul"],  # 허무 → 무기력하거나 담담한 정서
-            5: ["발라드", "포크/블루스"],  # 우울 → 조용하거나 격한 감정 침잠
-            6: ["발라드", "R&B/Soul", "포크/블루스"],  # 슬픔 → 애절함 + 회상적 감정
-            7: ["랩/힙합", "록/메탈"]  # 분노 → 파워풀한 표현 위주
-        }
         genre_names = emotion_to_genres.get(emotion_id_full)
         if not genre_names:
             raise HTTPException(status_code=400, detail="감정에 대응되는 장르가 없습니다.")
@@ -641,15 +641,15 @@ async def create_diary_with_emotion_based_recommendation(
                 }
             ))
 
-        top_3_raw = heapq.nlargest(7, heap, key=lambda x: (x[0], x[1]))
+        top_6_raw = heapq.nlargest(10, heap, key=lambda x: (x[0], x[1]))
 
         recent_lyrics = get_recently_recommended_lyrics(session, user_id=current_user.id)
 
         seen_song_ids = set()
         seen_lyrics = set()
-        top_3 = []
+        top_6 = []
 
-        for sim, _, match in top_3_raw:
+        for sim, _, match in top_6_raw:
             song_id = match["song_id"]
             lyric_chunk = " ".join(match["lyric_chunk"]).strip()
 
@@ -659,14 +659,14 @@ async def create_diary_with_emotion_based_recommendation(
                 logger.info(f"최근 추천된 동일 가사 블럭 제외됨: {lyric_chunk}")
                 continue
 
-            top_3.append((sim, match))
+            top_6.append((sim, match))
             seen_song_ids.add(song_id)
             seen_lyrics.add(lyric_chunk)
 
-            if len(top_3) >= 3:
+            if len(top_6) >= 6:
                 break
 
-        if not top_3:
+        if not top_6:
             raise HTTPException(status_code=404, detail="적합한 노래를 찾을 수 없습니다.")
 
         new_diary = Diary(
@@ -694,7 +694,7 @@ async def create_diary_with_emotion_based_recommendation(
         save_diary_embedding(session, new_diary.id, combined_embedding)
 
         recommended_songs = []
-        for sim, match in top_3:
+        for sim, match in top_6:
             song_data = RecommendedSong(
                 diary_id=new_diary.id,
                 song_id=match["song_id"],
@@ -729,7 +729,7 @@ async def create_diary_with_emotion_based_recommendation(
             "best_sentence": new_diary.best_sentence,
             "created_at": new_diary.created_at,
             "updated_at": new_diary.updated_at,
-            "recommended_songs": recommended_songs,
+            "recommended_songs": recommended_songs[:3],
             "top_emotions": [
                 {"emotion_id": eid, "score": round(score, 4)}
                 for eid, score in sorted(emotion_vote_counter.items(), key=lambda x: -x[1])[:3]
@@ -881,6 +881,26 @@ def delete_diary(
 
     return {"message": "일기가 삭제되었습니다!"}
 
+@router.get("/{diary_id}/emotion-tags", response_model=List[EmotionTag],
+            summary="감정 태그 조회", description="특정 일기의 감정 분석 결과(상위 3개)를 조회합니다.")
+def get_emotion_tags_by_diary(
+    diary_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    diary = db.query(Diary).filter(
+        Diary.id == diary_id,
+        Diary.user_id == current_user.id
+    ).first()
+    if not diary:
+        raise HTTPException(status_code=404, detail="일기를 찾을 수 없습니다.")
+
+    tags = db.query(DiaryEmotionTag).filter(
+        DiaryEmotionTag.diary_id == diary_id
+    ).order_by(DiaryEmotionTag.score.desc()).all()
+
+    return tags
+
 @router.get("/{year}/{month}", response_model=List[DiaryResponse],
             summary="특정 연도/월의 일기 조회",
             description="입력한 연도와 월에 해당하는 일기를 모두 조회합니다.")
@@ -977,6 +997,32 @@ async def set_main_song(
         "message": "대표 음악이 설정되었습니다.",
         "youtube_url": song.youtube_url
     }
+
+@router.get("/{diary_id}/recommended-songs/extra", response_model=List[RecommendSongResponse],
+            summary="일기 리롤 버튼",
+            description="일기 리롤 가능합니다. 1회.")
+def get_additional_recommended_songs(
+    diary_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    diary = db.query(Diary).filter(
+        Diary.id == diary_id,
+        Diary.user_id == current_user.id
+    ).first()
+
+    if not diary:
+        raise HTTPException(404, detail="일기를 찾을 수 없습니다.")
+
+    all_songs = db.query(RecommendedSong).filter(
+        RecommendedSong.diary_id == diary_id
+    ).order_by(RecommendedSong.similarity_score.desc()).all()
+
+    if len(all_songs) <= 3:
+        raise HTTPException(404, detail="추가 추천곡이 없습니다.")
+
+    return all_songs[3:]
+
 
 """
 안 씀
