@@ -1,4 +1,5 @@
 import os
+import re
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException
@@ -61,6 +62,24 @@ def get_recently_recommended_lyrics(session, user_id: int, limit: int = 20) -> S
     )
 
     return set(lyric[0] for lyric in lyrics)
+
+def normalize_lyric(text: str) -> str:
+    """
+    공백, 개행 등 제거해서 비교 용도로만 사용하는 정제 함수
+    """
+    return re.sub(r"\s+", " ", text.strip()).lower()
+
+def is_repetitive_lyric(text: str) -> bool:
+    patterns = [
+        r"(라|아|어|우|으|하|랄)\1{2,}",                      # 라라라, 아아아, 하하하 등 3회 이상 반복
+        r"\b(ah|oh|ha|woo|la)(\s?\1){2,}\b",                  # ah ah ah 등 3회 이상 반복
+        r"^([가-힣a-zA-Z])\1{3,}$",                           # 같은 문자만 4회 이상 반복 (e.g., ㅋㅋㅋㅋ)
+        r"^([가-힣a-zA-Z\s]{1,5})$",                          # 의미 없는 5자 이하 문장
+    ]
+    for pattern in patterns:
+        if re.search(pattern, text.strip(), re.IGNORECASE):
+            return True
+    return False
 
 @router.post("/main", response_model=DiaryResponse, status_code=201,
              summary="일기 작성 & Top-3 유사 가사 기반 노래 추천",
@@ -644,7 +663,6 @@ async def create_diary_with_emotion_based_recommendation(
         top_6_raw = heapq.nlargest(10, heap, key=lambda x: (x[0], x[1]))
 
         recent_lyrics = get_recently_recommended_lyrics(session, user_id=current_user.id)
-
         seen_song_ids = set()
         seen_lyrics = set()
         top_6 = []
@@ -653,6 +671,9 @@ async def create_diary_with_emotion_based_recommendation(
             song_id = match["song_id"]
             lyric_chunk = " ".join(match["lyric_chunk"]).strip()
 
+            if is_repetitive_lyric(lyric_chunk):
+                logger.info(f"무의미 반복 가사 제외됨: {lyric_chunk}")
+                continue
             if song_id in seen_song_ids:
                 continue
             if lyric_chunk in recent_lyrics:
@@ -706,10 +727,10 @@ async def create_diary_with_emotion_based_recommendation(
                 similarity_score=round(float(sim), 4)
             )
             session.add(song_data)
-            session.flush()  # ✅ id 부여를 위해 flush
+            session.flush()
 
             recommended_songs.append({
-                "id": song_data.id,  # ✅ 여기에 id 포함
+                "id": song_data.id,
                 "song_id": song_data.song_id,
                 "song_name": song_data.song_name,
                 "artist": song_data.artist,
@@ -718,6 +739,28 @@ async def create_diary_with_emotion_based_recommendation(
                 "best_lyric": song_data.best_lyric,
                 "similarity_score": song_data.similarity_score,
             })
+        # 9-1) 감정 통계 업데이트 또는 추가
+        existing_stat = session.query(EmotionStatistics).filter(
+            EmotionStatistics.user_id == current_user.id,
+            EmotionStatistics.year == new_diary.created_at.year,
+            EmotionStatistics.month == new_diary.created_at.month,
+            EmotionStatistics.emotiontype_id == emotion_id_db
+        ).first()
+
+        if existing_stat:
+            existing_stat.count += 1
+        else:
+            new_stat = EmotionStatistics(
+                user_id=current_user.id,
+                year=new_diary.created_at.year,
+                month=new_diary.created_at.month,
+                emotiontype_id=emotion_id_db,
+                quadrant=None,  # quadrant 나중에 추가할거면 매핑
+                count=1,
+                created_at=new_diary.created_at
+            )
+            session.add(new_stat)
+
         session.commit()
 
         response_data = {
