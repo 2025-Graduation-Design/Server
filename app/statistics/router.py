@@ -79,5 +79,9 @@ def get_statistics_by_month(
     if not stats:
         raise HTTPException(status_code=404, detail="해당 연도/월 통계가 없습니다.")
 
-    emotion_ids = [s.emotiontype_id for s in stats if s.emotiontype_id is not None]
+    emotion_ids = []
+    for s in stats:
+        if s.emotiontype_id is not None:
+            emotion_ids.extend([s.emotiontype_id] * s.count)
+
     return summarize_emotions(emotion_ids)
