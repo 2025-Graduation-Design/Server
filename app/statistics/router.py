@@ -72,8 +72,8 @@ def get_statistics_by_month(
 ):
     stats = db.query(EmotionStatistics).filter(
         EmotionStatistics.user_id == current_user.id,
-        extract("year", EmotionStatistics.created_at) == year,
-        extract("month", EmotionStatistics.created_at) == month
+        EmotionStatistics.year == year,
+        EmotionStatistics.month == month
     ).all()
 
     if not stats:
